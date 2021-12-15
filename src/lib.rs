@@ -1,36 +1,27 @@
 #[macro_use]
 extern crate thiserror;
 
-use std::ops::{Deref, DerefMut};
-use ty::Type;
+
+pub use _struct::{Field, Struct};
+pub use array::Array;
+pub use ty::{Endian, Length, Size, Type, Unit};
+pub use value::Value;
+
+use crate::error::ParseError;
 
 pub mod error;
 pub mod ty;
-pub mod value;
 
-#[derive(Debug, Clone)]
-pub struct Struct(pub Vec<Field>);
+mod value;
+mod _struct;
+mod array;
 
-#[derive(Debug, Clone)]
-pub struct Field {
-    pub name: String,
-    pub ty: Type,
-}
+#[cfg(test)]
+mod tests;
 
-impl Struct {
+pub trait BinToJson {
+    type Output;
 
-}
-
-impl Deref for Struct {
-    type Target = Vec<Field>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for Struct {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
+    fn read<'a>(&self, data: &'a [u8]) -> Result<(Self::Output, &'a [u8]), ParseError>;
+    fn read_to_json<'a>(&self, data: &'a [u8]) -> Result<(serde_json::Value, &'a [u8]), ParseError>;
 }

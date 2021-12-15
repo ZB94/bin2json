@@ -1,8 +1,11 @@
 use std::collections::HashMap;
 
+pub use deku::ctx::{Endian, Size};
+
 #[derive(Debug, Clone)]
 pub enum Type {
     Magic(Vec<u8>),
+    Boolean(Unit),
     Int8(Unit),
     Int16(Unit),
     Int32(Unit),
@@ -13,9 +16,14 @@ pub enum Type {
     Uint64(Unit),
     Float32(Endian),
     Float64(Endian),
-    Boolean(Unit),
     String(Length),
     Bin(Length),
+}
+
+impl Type {
+    pub fn magic(magic: &[u8]) -> Self {
+        Self::Magic(magic.to_vec())
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -24,6 +32,29 @@ pub struct Unit {
     pub endian: Endian,
     /// 实际要读取的大小
     pub size: Option<Size>,
+}
+
+impl Unit {
+    pub fn new(endian: Endian, size: Option<Size>) -> Self {
+        Self {
+            endian,
+            size,
+        }
+    }
+
+    pub const fn big_endian() -> Self {
+        Self {
+            endian: Endian::Big,
+            size: None,
+        }
+    }
+
+    pub const fn little_endian() -> Self {
+        Self {
+            endian: Endian::Little,
+            size: None,
+        }
+    }
 }
 
 impl Default for Unit {
@@ -37,12 +68,14 @@ impl Default for Unit {
 
 #[derive(Debug, Clone)]
 pub enum Length {
+    /// 所有数据
+    All,
     /// 固定长度
     Fixed(usize),
-    /// 通过指定字段的值。指定字段的类型必须为整数
-    By(String),
     /// 以指定数据结尾
     EndWith(Vec<u8>),
+    /// 通过指定字段的值。指定字段的类型必须为整数
+    By(String),
     /// 根据指定字段的值有不同的大小，指定字段的类型必须为整数
     Enum {
         /// 字段名称
@@ -52,21 +85,15 @@ pub enum Length {
     },
 }
 
-#[derive(Debug, Copy, Clone)]
-pub enum Endian {
-    Big,
-    Little,
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct Size(usize);
-
-impl Size {
-    pub fn bits(size: usize) -> Self {
-        Self(size)
+impl Length {
+    pub fn by_enum<S: Into<String>>(target_field: S, map: HashMap<isize, usize>) -> Self {
+        Self::Enum {
+            by: target_field.into(),
+            map,
+        }
     }
 
-    pub fn bytes(size: usize) -> Self {
-        Self(size * u8::BITS as usize)
+    pub fn by_field<S: Into<String>>(target: S) -> Self {
+        Self::By(target.into())
     }
 }
