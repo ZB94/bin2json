@@ -6,6 +6,7 @@ use ty::Type;
 
 pub mod error;
 pub mod ty;
+pub mod value;
 
 #[derive(Debug, Clone)]
 pub struct Struct(pub Vec<Field>);

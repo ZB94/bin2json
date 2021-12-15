@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-pub use deku::ctx::{Endian, Size};
-
 #[derive(Debug, Clone)]
 pub enum Type {
     Magic(Vec<u8>),
@@ -17,10 +15,7 @@ pub enum Type {
     Float64(Endian),
     Boolean(Unit),
     String(Length),
-    Vector {
-        ty: Box<Type>,
-        len: Length,
-    },
+    Bin(Length),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -55,4 +50,23 @@ pub enum Length {
         /// 键为指定字段的值，值为大小
         map: HashMap<isize, usize>,
     },
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum Endian {
+    Big,
+    Little,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct Size(usize);
+
+impl Size {
+    pub fn bits(size: usize) -> Self {
+        Self(size)
+    }
+
+    pub fn bytes(size: usize) -> Self {
+        Self(size * u8::BITS as usize)
+    }
 }
