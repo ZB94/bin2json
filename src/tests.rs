@@ -1,5 +1,3 @@
-use deku::ctx::Endian;
-
 use crate::{Array, BinToJson, BytesSize, Type, Value};
 use crate::_struct::{Field, Struct};
 use crate::ty::Unit;
@@ -102,7 +100,7 @@ fn test_read_enum() {
     let array = Array {
         ty: Box::new(Type::Struct(_enum)),
         length: None,
-        size: None
+        size: None,
     };
 
     let data = b"\x01hello\x02world\x03\x00\x00\x00\xff";

@@ -6,7 +6,8 @@ use deku::ctx::Limit;
 use deku::prelude::*;
 
 use crate::{Array, BinToJson, Struct};
-use crate::error::ParseError;
+use crate::_struct::Field;
+use crate::error::BinToJsonError;
 use crate::Value;
 
 #[derive(Debug, Clone)]
@@ -34,6 +35,37 @@ pub enum Type {
     },
 }
 
+impl Type {
+    pub fn magic(magic: &[u8]) -> Self {
+        Self::Magic(magic.to_vec())
+    }
+    pub fn bool() -> Self {
+        Self::Boolean(Unit::big_endian())
+    }
+    pub fn bit_bool() -> Self {
+        Self::Boolean(Unit::new(Endian::Big, Some(Size::Bits(1))))
+    }
+    pub fn int8() -> Self {
+        Self::Int8(Default::default())
+    }
+    pub fn uint8() -> Self {
+        Self::Uint8(Default::default())
+    }
+    pub fn new_struct(fields: Vec<Field>) -> Self {
+        Self::Struct(Struct::new(fields))
+    }
+    pub fn new_array(ty: Type) -> Self {
+        Self::Array(Array::new(ty))
+    }
+    pub fn new_enum<S: Into<String>>(by: S, map: HashMap<i64, Type>) -> Self {
+        Self::Enum {
+            by: by.into(),
+            map,
+            size: None,
+        }
+    }
+}
+
 macro_rules! parse_numeric_field {
     ($input: expr, $name: expr, $ty: ty, $unit: expr, $default_size: expr) => {{
         let size = $unit.size.unwrap_or($default_size);
@@ -43,7 +75,7 @@ macro_rules! parse_numeric_field {
 }
 
 impl BinToJson for Type {
-    fn read<'a>(&self, data: &'a [u8]) -> Result<(Value, &'a [u8]), ParseError> {
+    fn read<'a>(&self, data: &'a [u8]) -> Result<(Value, &'a [u8]), BinToJsonError> {
         let data = data.view_bits();
         let (value, data): (Value, _) = match self {
             Self::Magic(ref magic) => {
@@ -55,7 +87,7 @@ impl BinToJson for Type {
                 if magic == &value {
                     (value.into(), input)
                 } else {
-                    return Err(ParseError::MagicError);
+                    return Err(BinToJsonError::MagicError);
                 }
             }
             Self::Boolean(unit) => {
@@ -108,14 +140,14 @@ impl BinToJson for Type {
                         )?;
                         while !d.ends_with(with) {
                             let (i2, b) = u8::read(i, ())
-                                .map_err(|_| ParseError::EndNotFound)?;
+                                .map_err(|_| BinToJsonError::EndNotFound)?;
                             i = i2;
                             d.push(b);
                         }
                         (i, d)
                     }
                     BytesSize::By(_) | BytesSize::Enum { .. } => {
-                        return Err(ParseError::ByKeyNotFound);
+                        return Err(BinToJsonError::ByKeyNotFound);
                     }
                 };
 
@@ -134,17 +166,12 @@ impl BinToJson for Type {
                 a.read(data.as_raw_slice())
                     .map(|(v, d)| (v, d.view_bits()))?
             }
-            Self::Enum { .. } => return Err(ParseError::ByKeyNotFound),
+            Self::Enum { .. } => return Err(BinToJsonError::ByKeyNotFound),
         };
         Ok((value, data.as_raw_slice()))
     }
 }
 
-impl Type {
-    pub fn magic(magic: &[u8]) -> Self {
-        Self::Magic(magic.to_vec())
-    }
-}
 
 #[derive(Debug, Copy, Clone)]
 pub struct Unit {

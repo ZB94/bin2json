@@ -8,7 +8,7 @@ pub use array::Array;
 pub use ty::{BytesSize, Endian, Size, Type, Unit};
 pub use value::Value;
 
-use crate::error::ParseError;
+use crate::error::BinToJsonError;
 
 pub mod error;
 pub mod ty;
@@ -21,31 +21,31 @@ mod array;
 mod tests;
 
 pub trait BinToJson {
-    fn read<'a>(&self, data: &'a [u8]) -> Result<(Value, &'a [u8]), ParseError>;
+    fn read<'a>(&self, data: &'a [u8]) -> Result<(Value, &'a [u8]), BinToJsonError>;
 
-    fn read_to_json<'a>(&self, data: &'a [u8]) -> Result<(serde_json::Value, &'a [u8]), ParseError> {
+    fn read_to_json<'a>(&self, data: &'a [u8]) -> Result<(serde_json::Value, &'a [u8]), BinToJsonError> {
         self.read(data)
             .map(|(v, d)| (v.into(), d))
     }
 }
 
-pub(crate) fn get_data_by_size<'a>(data: &'a [u8], size: &Option<BytesSize>) -> Result<&'a [u8], ParseError> {
+pub(crate) fn get_data_by_size<'a>(data: &'a [u8], size: &Option<BytesSize>) -> Result<&'a [u8], BinToJsonError> {
     match size {
-        Some(BytesSize::By(_) | BytesSize::Enum { .. }) => Err(ParseError::ByKeyNotFound),
+        Some(BytesSize::By(_) | BytesSize::Enum { .. }) => Err(BinToJsonError::ByKeyNotFound),
         Some(BytesSize::All) | None => Ok(data),
         Some(BytesSize::Fixed(size)) => if data.len() >= *size {
             Ok(&data[..*size])
         } else {
-            Err(ParseError::Incomplete)
+            Err(BinToJsonError::Incomplete)
         }
         Some(BytesSize::EndWith(with)) => {
             let size = data.windows(with.len())
                 .position(|w| w == with)
-                .ok_or(ParseError::EndNotFound)?;
+                .ok_or(BinToJsonError::EndNotFound)?;
             if data.len() >= size {
                 Ok(&data[..size])
             } else {
-                Err(ParseError::Incomplete)
+                Err(BinToJsonError::Incomplete)
             }
         }
     }

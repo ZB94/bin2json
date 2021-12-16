@@ -5,7 +5,7 @@ use deku::DekuError;
 
 
 #[derive(Debug, Error)]
-pub enum ParseError {
+pub enum BinToJsonError {
     #[error("魔法值不对应")]
     MagicError,
     #[error("Deku错误: {0}")]
@@ -25,13 +25,13 @@ pub enum ParseError {
 }
 
 
-impl From<FromUtf8Error> for ParseError {
+impl From<FromUtf8Error> for BinToJsonError {
     fn from(e: FromUtf8Error) -> Self {
         e.utf8_error().into()
     }
 }
 
-impl From<DekuError> for ParseError {
+impl From<DekuError> for BinToJsonError {
     fn from(e: DekuError) -> Self {
         if let DekuError::Incomplete(_) = &e {
             Self::Incomplete
