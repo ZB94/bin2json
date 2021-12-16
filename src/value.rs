@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::ops::Index;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Boolean(bool),
@@ -13,6 +16,8 @@ pub enum Value {
     Float64(f64),
     String(String),
     Bin(Vec<u8>),
+    Array(Vec<Self>),
+    Object(HashMap<String, Self>),
 }
 
 impl Into<serde_json::Value> for Value {
@@ -31,7 +36,13 @@ impl Into<serde_json::Value> for Value {
             Float32(n) => n.into(),
             Float64(n) => n.into(),
             String(s) => s.into(),
-            Bin(b) => b.into()
+            Bin(b) => b.into(),
+            Array(a) => serde_json::Value::Array(a.into_iter()
+                .map(|v| v.into())
+                .collect()),
+            Object(m) => serde_json::Value::Object(m.into_iter()
+                .map(|(k, v)| (k, v.into()))
+                .collect())
         }
     }
 }
@@ -75,5 +86,41 @@ impl From<&[u8]> for Value {
 impl<const L: usize> From<&[u8; L]> for Value {
     fn from(value: &[u8; L]) -> Self {
         Self::Bin(value.to_vec())
+    }
+}
+
+impl From<Vec<Value>> for Value {
+    fn from(l: Vec<Value>) -> Self {
+        Self::Array(l)
+    }
+}
+
+impl From<HashMap<String, Value>> for Value {
+    fn from(m: HashMap<String, Value>) -> Self {
+        Self::Object(m)
+    }
+}
+
+impl Index<usize> for Value {
+    type Output = Value;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        if let Value::Array(a) = self {
+            a.index(index)
+        } else {
+            panic!("当前Value的类型不是数组")
+        }
+    }
+}
+
+impl Index<&str> for Value {
+    type Output = Value;
+
+    fn index(&self, index: &str) -> &Self::Output {
+        if let Value::Object(o) = self {
+            o.index(index)
+        } else {
+            panic!("当前Value的类型不是对象")
+        }
     }
 }

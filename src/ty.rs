@@ -1,6 +1,13 @@
 use std::collections::HashMap;
 
+use deku::bitvec::BitView;
 pub use deku::ctx::{Endian, Size};
+use deku::ctx::Limit;
+use deku::prelude::*;
+
+use crate::BinToJson;
+use crate::error::ParseError;
+use crate::Value;
 
 #[derive(Debug, Clone)]
 pub enum Type {
@@ -16,8 +23,105 @@ pub enum Type {
     Uint64(Unit),
     Float32(Endian),
     Float64(Endian),
-    String(Length),
-    Bin(Length),
+    String(BytesSize),
+    Bin(BytesSize),
+}
+
+macro_rules! parse_numeric_field {
+    ($input: expr, $name: expr, $ty: ty, $unit: expr, $default_size: expr) => {{
+        let size = $unit.size.unwrap_or($default_size);
+        let (input, value) = <$ty>::read($input, ($unit.endian, size))?;
+        (value.into(), input)
+    }};
+}
+
+impl BinToJson for Type {
+    fn read<'a>(&self, data: &'a [u8]) -> Result<(Value, &'a [u8]), ParseError> {
+        let data = data.view_bits();
+        let (value, data): (Value, _) = match self {
+            Self::Magic(ref magic) => {
+                let (input, value): (_, Vec<u8>) = DekuRead::read(
+                    data,
+                    Limit::new_count(magic.len()),
+                )?;
+
+                if magic == &value {
+                    (value.into(), input)
+                } else {
+                    return Err(ParseError::MagicError);
+                }
+            }
+            Self::Boolean(unit) => {
+                parse_numeric_field!(data, field.name, bool, unit, Size::Bytes(1))
+            }
+            Self::Int8(unit) => {
+                parse_numeric_field!(data, field.name, i8, unit, Size::Bytes(1))
+            }
+            Self::Int16(unit) => {
+                parse_numeric_field!(data, field.name, i16, unit, Size::Bytes(2))
+            }
+            Self::Int32(unit) => {
+                parse_numeric_field!(data, field.name, i32, unit, Size::Bytes(4))
+            }
+            Self::Int64(unit) => {
+                parse_numeric_field!(data, field.name, i64, unit, Size::Bytes(8))
+            }
+            Self::Uint8(unit) => {
+                parse_numeric_field!(data, field.name, u8, unit, Size::Bytes(1))
+            }
+            Self::Uint16(unit) => {
+                parse_numeric_field!(data, field.name, u16, unit, Size::Bytes(2))
+            }
+            Self::Uint32(unit) => {
+                parse_numeric_field!(data, field.name, u32, unit, Size::Bytes(4))
+            }
+            Self::Uint64(unit) => {
+                parse_numeric_field!(data, field.name, u64, unit, Size::Bytes(8))
+            }
+            Self::Float32(endian) => {
+                let (input, v) = f32::read(data, *endian)?;
+                (v.into(), input)
+            }
+            Self::Float64(endian) => {
+                let (input, v) = f64::read(data, *endian)?;
+                (v.into(), input)
+            }
+            Self::String(ref len) | Type::Bin(ref len) => {
+                let (input, v): (_, Vec<u8>) = match len {
+                    BytesSize::All => {
+                        DekuRead::read(data, Limit::new_size(Size::Bits(data.len())))?
+                    }
+                    BytesSize::Fixed(len) => {
+                        DekuRead::read(data, Limit::new_count(*len))?
+                    }
+                    BytesSize::EndWith(with) => {
+                        let (mut i, mut d): (_, Vec<u8>) = DekuRead::read(
+                            data,
+                            Limit::new_count(with.len()),
+                        )?;
+                        while !d.ends_with(with) {
+                            let (i2, b) = u8::read(i, ())
+                                .map_err(|_| ParseError::EndNotFound)?;
+                            i = i2;
+                            d.push(b);
+                        }
+                        (i, d)
+                    }
+                    BytesSize::By(_) | BytesSize::Enum { .. } => {
+                        return Err(ParseError::ByKeyNotFound);
+                    }
+                };
+
+                let v = if let Type::String(_) = self {
+                    String::from_utf8(v)?.into()
+                } else {
+                    v.into()
+                };
+                (v, input)
+            }
+        };
+        Ok((value, data.as_raw_slice()))
+    }
 }
 
 impl Type {
@@ -67,7 +171,7 @@ impl Default for Unit {
 }
 
 #[derive(Debug, Clone)]
-pub enum Length {
+pub enum BytesSize {
     /// 所有数据
     All,
     /// 固定长度
@@ -85,7 +189,7 @@ pub enum Length {
     },
 }
 
-impl Length {
+impl BytesSize {
     pub fn by_enum<S: Into<String>>(target_field: S, map: HashMap<isize, usize>) -> Self {
         Self::Enum {
             by: target_field.into(),
@@ -95,5 +199,13 @@ impl Length {
 
     pub fn by_field<S: Into<String>>(target: S) -> Self {
         Self::By(target.into())
+    }
+
+    pub fn by(&self) -> Option<&String> {
+        if let Self::By(name) | Self::Enum { by: name, .. } = self {
+            Some(name)
+        } else {
+            None
+        }
     }
 }

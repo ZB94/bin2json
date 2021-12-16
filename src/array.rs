@@ -1,6 +1,4 @@
-use std::collections::HashMap;
-
-use crate::{BinToJson, Struct};
+use crate::{BinToJson, BytesSize, get_data_by_size, Struct};
 use crate::error::ParseError;
 use crate::Value;
 
@@ -8,17 +6,17 @@ pub struct Array {
     /// 元素定义
     pub element: Struct,
     /// 数组长度，如果为`None`，则尽可能转换
-    pub size: Option<usize>,
+    pub length: Option<usize>,
+    pub size: Option<BytesSize>,
 }
 
 impl BinToJson for Array {
-    type Output = Vec<HashMap<String, Value>>;
-
-    fn read<'a>(&self, mut data: &'a [u8]) -> Result<(Self::Output, &'a [u8]), ParseError> {
-        let mut ret = self.size.map(|s| Vec::with_capacity(s))
+    fn read<'a>(&self, data: &'a [u8]) -> Result<(Value, &'a [u8]), ParseError> {
+        let mut data = get_data_by_size(data, &self.size)?;
+        let mut ret = self.length.map(|s| Vec::with_capacity(s))
             .unwrap_or_default();
 
-        let size = self.size.unwrap_or_default();
+        let size = self.length.unwrap_or_default();
         loop {
             match self.element.read(data) {
                 Ok((s, d)) => {
@@ -38,22 +36,6 @@ impl BinToJson for Array {
             }
         }
 
-        Ok((ret, data))
-    }
-
-    fn read_to_json<'a>(&self, data: &'a [u8]) -> Result<(serde_json::Value, &'a [u8]), ParseError> {
-        self.read(data)
-            .map(|(l, d)| {
-                let l = serde_json::Value::Array(l
-                    .into_iter()
-                    .map(|m| {
-                        serde_json::Value::Object(
-                            m.into_iter()
-                                .map(|(k, v)| (k, v.into()))
-                                .collect())
-                    })
-                    .collect());
-                (l, d)
-            })
+        Ok((Value::Array(ret), data))
     }
 }
