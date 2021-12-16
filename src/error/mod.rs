@@ -20,6 +20,8 @@ pub enum ParseError {
     EndNotFound,
     #[error("输入数据不完整")]
     Incomplete,
+    #[error("未能找到枚举值")]
+    EnumKeyNotFound,
 }
 
 

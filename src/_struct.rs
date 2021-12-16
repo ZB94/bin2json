@@ -33,10 +33,33 @@ impl BinToJson for Struct {
 
         for Field { name, ty } in &self.fields {
             let mut ty = ty.clone();
-            if let Type::Bin(len) | Type::String(len) = &mut ty {
-                if let Some(by) = len.by() {
-                    *len = get_length_by_key(&ret, by, len)?;
+            match &mut ty {
+                Type::Enum { by: key_by, map, size } => {
+                    let d = get_data_by_size(data, size)?;
+                    let d_len = d.len();
+
+                    let key = ret.get(key_by)
+                        .cloned()
+                        .map::<serde_json::Value, _>(|v| v.into())
+                        .ok_or(ParseError::ByKeyNotFound)?
+                        .as_i64()
+                        .ok_or(ParseError::LengthTargetIsInvalid)?;
+
+                    let ty = map.get(&key)
+                        .ok_or(ParseError::EnumKeyNotFound)?;
+
+                    let (v, d2) = ty.read(d)?;
+                    ret.insert(name.clone(), v);
+                    data = &data[d_len - d2.len()..];
+
+                    continue;
                 }
+                Type::Bin(len) | Type::String(len) => {
+                    if let Some(by) = len.by() {
+                        *len = get_length_by_key(&ret, by, len)?;
+                    }
+                }
+                _ => {}
             }
             let (v, d) = ty.read(data)?;
             ret.insert(name.clone(), v);
@@ -56,7 +79,7 @@ fn get_length_by_key(map: &HashMap<String, Value>, by: &String, len: &BytesSize)
 
     let size = if let BytesSize::Enum { map, .. } = len {
         by_value.as_i64()
-            .and_then(|k| map.get(&(k as isize)).copied())
+            .and_then(|k| map.get(&k).copied())
     } else {
         by_value.as_u64()
             .map(|s| s as usize)

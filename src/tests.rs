@@ -1,3 +1,5 @@
+use deku::ctx::Endian;
+
 use crate::{Array, BinToJson, BytesSize, Type, Value};
 use crate::_struct::{Field, Struct};
 use crate::ty::Unit;
@@ -53,9 +55,9 @@ fn test_array_read() {
             fields: vec![
                 Field::new("id", Type::Uint8(Default::default())),
                 Field::new("data", Type::String(BytesSize::by_enum("id", vec![
-                    ('1' as isize, 1),
-                    ('2' as isize, 2),
-                    ('3' as isize, 3),
+                    ('1' as i64, 1),
+                    ('2' as i64, 2),
+                    ('3' as i64, 3),
                 ].into_iter().collect()))),
             ],
             size: None,
@@ -77,4 +79,45 @@ fn test_array_read() {
 
     array.length = Some(4);
     assert!(array.read_to_json(b"333322211").is_err());
+}
+
+
+#[test]
+fn test_read_enum() {
+    let _enum = Struct {
+        fields: vec![
+            Field::new("key", Type::Uint8(Default::default())),
+            Field::new("value", Type::Enum {
+                by: "key".to_string(),
+                map: [
+                    (1, Type::String(BytesSize::Fixed(5))),
+                    (2, Type::Bin(BytesSize::Fixed(5))),
+                    (3, Type::Uint32(Unit::big_endian())),
+                ].into_iter().collect(),
+                size: None,
+            }),
+        ],
+        size: None,
+    };
+    let array = Array {
+        ty: Box::new(Type::Struct(_enum)),
+        length: None,
+        size: None
+    };
+
+    let data = b"\x01hello\x02world\x03\x00\x00\x00\xff";
+    assert_eq!(array.read_to_json(data).unwrap(), (serde_json::json!([
+        {
+            "key": 1,
+            "value": "hello"
+        },
+        {
+            "key": 2,
+            "value": b"world"
+        },
+        {
+            "key": 3,
+            "value": u32::from_be_bytes([0, 0,0, 0xff])
+        }
+    ]), [0u8; 0].as_slice()));
 }

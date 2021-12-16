@@ -27,6 +27,11 @@ pub enum Type {
     Bin(BytesSize),
     Struct(Struct),
     Array(Array),
+    Enum {
+        by: String,
+        map: HashMap<i64, Type>,
+        size: Option<BytesSize>,
+    },
 }
 
 macro_rules! parse_numeric_field {
@@ -129,6 +134,7 @@ impl BinToJson for Type {
                 a.read(data.as_raw_slice())
                     .map(|(v, d)| (v, d.view_bits()))?
             }
+            Self::Enum { .. } => return Err(ParseError::ByKeyNotFound),
         };
         Ok((value, data.as_raw_slice()))
     }
@@ -195,12 +201,12 @@ pub enum BytesSize {
         /// 字段名称
         by: String,
         /// 键为指定字段的值，值为大小
-        map: HashMap<isize, usize>,
+        map: HashMap<i64, usize>,
     },
 }
 
 impl BytesSize {
-    pub fn by_enum<S: Into<String>>(target_field: S, map: HashMap<isize, usize>) -> Self {
+    pub fn by_enum<S: Into<String>>(target_field: S, map: HashMap<i64, usize>) -> Self {
         Self::Enum {
             by: target_field.into(),
             map,
