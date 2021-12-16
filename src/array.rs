@@ -1,10 +1,11 @@
-use crate::{BinToJson, BytesSize, get_data_by_size, Struct};
+use crate::{BinToJson, BytesSize, get_data_by_size, Type};
 use crate::error::ParseError;
 use crate::Value;
 
+#[derive(Debug, Clone)]
 pub struct Array {
     /// 元素定义
-    pub element: Struct,
+    pub ty: Box<Type>,
     /// 数组长度，如果为`None`，则尽可能转换
     pub length: Option<usize>,
     pub size: Option<BytesSize>,
@@ -18,7 +19,7 @@ impl BinToJson for Array {
 
         let size = self.length.unwrap_or_default();
         loop {
-            match self.element.read(data) {
+            match self.ty.read(data) {
                 Ok((s, d)) => {
                     data = d;
                     ret.push(s);

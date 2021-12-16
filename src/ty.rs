@@ -5,7 +5,7 @@ pub use deku::ctx::{Endian, Size};
 use deku::ctx::Limit;
 use deku::prelude::*;
 
-use crate::BinToJson;
+use crate::{Array, BinToJson, Struct};
 use crate::error::ParseError;
 use crate::Value;
 
@@ -25,6 +25,8 @@ pub enum Type {
     Float64(Endian),
     String(BytesSize),
     Bin(BytesSize),
+    Struct(Struct),
+    Array(Array),
 }
 
 macro_rules! parse_numeric_field {
@@ -118,6 +120,14 @@ impl BinToJson for Type {
                     v.into()
                 };
                 (v, input)
+            }
+            Self::Struct(s) => {
+                s.read(data.as_raw_slice())
+                    .map(|(v, d)| (v, d.view_bits()))?
+            }
+            Self::Array(a) => {
+                a.read(data.as_raw_slice())
+                    .map(|(v, d)| (v, d.view_bits()))?
             }
         };
         Ok((value, data.as_raw_slice()))

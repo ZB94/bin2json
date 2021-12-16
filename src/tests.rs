@@ -49,7 +49,7 @@ pub fn test_struct_read() {
 #[test]
 fn test_array_read() {
     let mut array = Array {
-        element: Struct {
+        ty: Box::new(Type::Struct(Struct {
             fields: vec![
                 Field::new("id", Type::Uint8(Default::default())),
                 Field::new("data", Type::String(BytesSize::by_enum("id", vec![
@@ -59,7 +59,7 @@ fn test_array_read() {
                 ].into_iter().collect()))),
             ],
             size: None,
-        },
+        })),
         length: None,
         size: None,
     };
