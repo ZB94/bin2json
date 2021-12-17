@@ -4,7 +4,7 @@ use std::string::FromUtf8Error;
 use deku::DekuError;
 
 #[derive(Debug, Error, PartialEq)]
-pub enum BinToJsonError {
+pub enum ReadBinError {
     #[error("魔法值({0:?})不对应")]
     MagicError(Vec<u8>),
     #[error("Deku错误: {0}")]
@@ -23,13 +23,13 @@ pub enum BinToJsonError {
     EnumKeyNotFound(i64),
 }
 
-impl From<FromUtf8Error> for BinToJsonError {
+impl From<FromUtf8Error> for ReadBinError {
     fn from(e: FromUtf8Error) -> Self {
         e.utf8_error().into()
     }
 }
 
-impl From<DekuError> for BinToJsonError {
+impl From<DekuError> for ReadBinError {
     fn from(e: DekuError) -> Self {
         if let DekuError::Incomplete(_) = &e {
             Self::Incomplete

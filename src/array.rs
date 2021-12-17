@@ -1,11 +1,17 @@
-use crate::{BinToJson, BitSlice, BytesSize, get_data_by_size, Msb0, Type};
-use crate::error::BinToJsonError;
+use crate::{ReadBin, BitSlice, BytesSize, get_data_by_size, Msb0, Type};
+use crate::error::ReadBinError;
 use crate::Value;
 
+/// 数组长度
 #[derive(Debug, Clone)]
 pub enum Length {
+    /// 固定长度
     Fixed(usize),
+    /// 通过指定字段指定。*使用该枚举时数据的定义应包含在结构体中，且指定的字段顺序应在数组之前*
     By(String),
+    /// 不限制
+    ///
+    /// 当数组使用该枚举值作为长度读取数据时，数组会不断尝试读取成员值，在读取出错或数据不足以继续读取时结束
     None,
 }
 
@@ -15,12 +21,14 @@ impl Length {
     }
 }
 
+/// 数组
 #[derive(Debug, Clone)]
 pub struct Array {
     /// 元素类型
     pub ty: Box<Type>,
     /// 数组长度
     pub length: Length,
+    /// 手动指定数组的总字节大小
     pub size: Option<BytesSize>,
 }
 
@@ -50,8 +58,8 @@ impl Array {
     }
 }
 
-impl BinToJson for Array {
-    fn read<'a>(&self, data: &'a BitSlice<Msb0, u8>) -> Result<(Value, &'a BitSlice<Msb0, u8>), BinToJsonError> {
+impl ReadBin for Array {
+    fn read<'a>(&self, data: &'a BitSlice<Msb0, u8>) -> Result<(Value, &'a BitSlice<Msb0, u8>), ReadBinError> {
         let src = data;
         let mut data = if let Some(size) = &self.size {
             get_data_by_size(data, size, None)?
@@ -63,7 +71,7 @@ impl BinToJson for Array {
         let (mut ret, len) = match &self.length {
             Length::Fixed(size) => (Vec::with_capacity(*size), *size),
             Length::None => (vec![], 0),
-            Length::By(by) => return Err(BinToJsonError::ByKeyNotFound(by.clone()))
+            Length::By(by) => return Err(ReadBinError::ByKeyNotFound(by.clone()))
         };
 
         loop {
@@ -79,7 +87,7 @@ impl BinToJson for Array {
                     if len == 0 {
                         break;
                     } else {
-                        return Err(BinToJsonError::Incomplete);
+                        return Err(ReadBinError::Incomplete);
                     }
                 }
             }

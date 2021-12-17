@@ -15,7 +15,7 @@ pub use array::{Array, Length};
 pub use ty::{BytesSize, Endian, Size, Type, Unit};
 pub use value::Value;
 
-use crate::error::BinToJsonError;
+use crate::error::ReadBinError;
 
 pub mod error;
 pub mod ty;
@@ -27,10 +27,13 @@ mod array;
 #[cfg(test)]
 mod tests;
 
-pub trait BinToJson {
-    fn read<'a>(&self, data: &'a BitSlice<Msb0, u8>) -> Result<(Value, &'a BitSlice<Msb0, u8>), BinToJsonError>;
+/// 从二进制读取数据
+pub trait ReadBin {
+    /// 从数据中读取数据并返回读取到的值和未使用的数据
+    fn read<'a>(&self, data: &'a BitSlice<Msb0, u8>) -> Result<(Value, &'a BitSlice<Msb0, u8>), ReadBinError>;
 
-    fn read_to_json<'a>(&self, data: &'a BitSlice<Msb0, u8>) -> Result<(serde_json::Value, &'a BitSlice<Msb0, u8>), BinToJsonError> {
+    /// 与[`ReadBin::read`]类似，但是返回的值是[`serde_json::Value`]
+    fn read_to_json<'a>(&self, data: &'a BitSlice<Msb0, u8>) -> Result<(serde_json::Value, &'a BitSlice<Msb0, u8>), ReadBinError> {
         self.read(data)
             .map(|(v, d)| (v.into(), d))
     }
@@ -40,14 +43,14 @@ pub(crate) fn get_data_by_size<'a>(
     data: &'a BitSlice<Msb0, u8>,
     size: &BytesSize,
     by_map: Option<&HashMap<String, Value>>,
-) -> Result<&'a BitSlice<Msb0, u8>, BinToJsonError> {
+) -> Result<&'a BitSlice<Msb0, u8>, ReadBinError> {
     let len = match size {
         BytesSize::All => return Ok(data),
         BytesSize::Fixed(size) => *size,
         BytesSize::EndWith(with) => {
-            let with_end_error = |e: DekuError| -> BinToJsonError {
+            let with_end_error = |e: DekuError| -> ReadBinError {
                 if let DekuError::Incomplete(_) = &e {
-                    BinToJsonError::EndNotFound(with.clone())
+                    ReadBinError::EndNotFound(with.clone())
                 } else {
                     e.into()
                 }
@@ -66,7 +69,7 @@ pub(crate) fn get_data_by_size<'a>(
             if let Some(map) = by_map {
                 let by_value: serde_json::Value = map.get(by)
                     .cloned()
-                    .ok_or(BinToJsonError::ByKeyNotFound(by.clone()))?
+                    .ok_or(ReadBinError::ByKeyNotFound(by.clone()))?
                     .into();
 
                 if let BytesSize::Enum { map, .. } = size {
@@ -76,9 +79,9 @@ pub(crate) fn get_data_by_size<'a>(
                     by_value.as_u64()
                         .map(|s| s as usize)
                 }
-                    .ok_or(BinToJsonError::LengthTargetIsInvalid(by.clone()))?
+                    .ok_or(ReadBinError::LengthTargetIsInvalid(by.clone()))?
             } else {
-                return Err(BinToJsonError::ByKeyNotFound(by.clone()));
+                return Err(ReadBinError::ByKeyNotFound(by.clone()));
             }
         }
     };
@@ -87,6 +90,6 @@ pub(crate) fn get_data_by_size<'a>(
     if data.len() >= bits_len {
         Ok(&data[..bits_len])
     } else {
-        Err(BinToJsonError::Incomplete)
+        Err(ReadBinError::Incomplete)
     }
 }

@@ -5,15 +5,21 @@ pub use deku::ctx::{Endian, Size};
 use deku::ctx::Limit;
 use deku::prelude::*;
 
-use crate::{Array, BinToJson, BitSlice, get_data_by_size, Struct};
+use crate::{Array, BitSlice, get_data_by_size, ReadBin, Struct};
 use crate::_struct::Field;
-use crate::error::BinToJsonError;
+use crate::error::ReadBinError;
 use crate::Value;
 
+/// 数据类型
 #[derive(Debug, Clone)]
 pub enum Type {
+    /// 魔法值。即一段固定数据值
     Magic(Vec<u8>),
-    Boolean { bit: bool },
+    /// 布尔型数据。
+    Boolean {
+        /// 是否是位数据。如果是则进度去1比特位的数据作为该值，否则读取1字节。
+        bit: bool
+    },
     Int8(Unit),
     Int16(Unit),
     Int32(Unit),
@@ -24,19 +30,32 @@ pub enum Type {
     Uint64(Unit),
     Float32(Endian),
     Float64(Endian),
+    /// UTF8字符串
     String(BytesSize),
+    /// 二进制数据
     Bin(BytesSize),
+    /// 结构体
     Struct(Struct),
+    /// 数组
     Array(Array),
+    /// 枚举。
+    ///
+    /// **注意: **
+    /// - 枚举类型不能单独存在，必须位于[`Struct`]的字段列表中
     Enum {
+        /// 字段名称。*字段必须存在于与该枚举同级的结构体中，且指定的字段顺序应在该枚举之前*
         by: String,
+        /// 枚举值对应的类型
         map: HashMap<i64, Type>,
+        /// 手动指定枚举的总字节大小
         size: Option<BytesSize>,
     },
 }
 
 impl Type {
+    /// 大小为1比特位的布尔值
     pub const BOOL_BIT: Type = Type::Boolean { bit: true };
+    /// 大小为1字节的布尔值
     pub const BOOL: Type = Type::Boolean { bit: false };
 
     pub fn magic(magic: &[u8]) -> Self {
@@ -71,8 +90,8 @@ macro_rules! parse_numeric_field {
     }};
 }
 
-impl BinToJson for Type {
-    fn read<'a>(&self, data: &'a BitSlice<Msb0, u8>) -> Result<(Value, &'a BitSlice<Msb0, u8>), BinToJsonError> {
+impl ReadBin for Type {
+    fn read<'a>(&self, data: &'a BitSlice<Msb0, u8>) -> Result<(Value, &'a BitSlice<Msb0, u8>), ReadBinError> {
         let (value, data): (Value, _) = match self {
             Self::Magic(ref magic) => {
                 let (input, value): (_, Vec<u8>) = DekuRead::read(
@@ -83,7 +102,7 @@ impl BinToJson for Type {
                 if magic == &value {
                     (value.into(), input)
                 } else {
-                    return Err(BinToJsonError::MagicError(magic.clone()));
+                    return Err(ReadBinError::MagicError(magic.clone()));
                 }
             }
             Self::Boolean { bit } => {
@@ -141,13 +160,13 @@ impl BinToJson for Type {
             Self::Array(a) => {
                 a.read(data)?
             }
-            Self::Enum { by, .. } => return Err(BinToJsonError::ByKeyNotFound(by.clone())),
+            Self::Enum { by, .. } => return Err(ReadBinError::ByKeyNotFound(by.clone())),
         };
         Ok((value, data))
     }
 }
 
-
+/// 类型的大小与字节顺序
 #[derive(Debug, Copy, Clone)]
 pub struct Unit {
     /// 字节顺序
@@ -157,10 +176,10 @@ pub struct Unit {
 }
 
 impl Unit {
-    pub fn new(endian: Endian, size: Option<Size>) -> Self {
+    pub fn new(endian: Endian, size: Size) -> Self {
         Self {
             endian,
-            size,
+            size: Some(size),
         }
     }
 
@@ -188,6 +207,7 @@ impl Default for Unit {
     }
 }
 
+/// 总字节大小
 #[derive(Debug, Clone)]
 pub enum BytesSize {
     /// 所有数据
@@ -217,13 +237,5 @@ impl BytesSize {
 
     pub fn by_field<S: Into<String>>(target: S) -> Self {
         Self::By(target.into())
-    }
-
-    pub fn by(&self) -> Option<&String> {
-        if let Self::By(name) | Self::Enum { by: name, .. } = self {
-            Some(name)
-        } else {
-            None
-        }
     }
 }

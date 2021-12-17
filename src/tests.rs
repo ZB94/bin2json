@@ -2,7 +2,7 @@ use deku::bitvec::BitView;
 use deku::ctx::{Endian, Size};
 use serde_json::json;
 
-use crate::{Array, BinToJson, BytesSize, Length, Type, Value};
+use crate::{Array, ReadBin, BytesSize, Length, Type, Value};
 use crate::_struct::{Field, Struct};
 use crate::ty::Unit;
 
@@ -171,7 +171,7 @@ fn test_read() {
                                 Field::new("pos_invalid", Type::BOOL_BIT),
                                 Field::new("pos_south", Type::BOOL_BIT),
                                 Field::new("pos_east", Type::BOOL_BIT),
-                                Field::new("skip", Type::Uint8(Unit::new(Endian::Big, Some(Size::Bits(5))))),
+                                Field::new("skip", Type::Uint8(Unit::new(Endian::Big, Size::Bits(5)))),
                                 Field::new("longitude", Type::Uint32(Unit::big_endian())),
                                 Field::new("latitude", Type::Uint32(Unit::big_endian())),
                                 Field::new("mileage", Type::Uint32(Unit::big_endian())),

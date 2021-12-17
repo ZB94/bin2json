@@ -2,13 +2,16 @@ use std::collections::HashMap;
 
 use deku::bitvec::BitSlice;
 
-use crate::{Array, BinToJson, get_data_by_size, Length, Msb0, Type, Value};
-use crate::error::BinToJsonError;
+use crate::{Array, ReadBin, get_data_by_size, Length, Msb0, Type, Value};
+use crate::error::ReadBinError;
 use crate::ty::BytesSize;
 
+/// 结构定义
 #[derive(Debug, Clone)]
 pub struct Struct {
+    /// 结构的字段列表
     pub fields: Vec<Field>,
+    /// 手动指定结构的总字节大小
     pub size: Option<BytesSize>,
 }
 
@@ -28,9 +31,12 @@ impl Struct {
     }
 }
 
+/// 结构字段
 #[derive(Debug, Clone)]
 pub struct Field {
+    /// 字段名称
     pub name: String,
+    /// 字段类型
     pub ty: Type,
 }
 
@@ -43,8 +49,8 @@ impl Field {
     }
 }
 
-impl BinToJson for Struct {
-    fn read<'a>(&self, data: &'a BitSlice<Msb0, u8>) -> Result<(Value, &'a BitSlice<Msb0, u8>), BinToJsonError> {
+impl ReadBin for Struct {
+    fn read<'a>(&self, data: &'a BitSlice<Msb0, u8>) -> Result<(Value, &'a BitSlice<Msb0, u8>), ReadBinError> {
         let src = data;
         let mut data = if let Some(size) = &self.size {
             get_data_by_size(&data, size, None)?
@@ -61,12 +67,12 @@ impl BinToJson for Struct {
                 if let Length::By(by) = length {
                     let by_value: serde_json::Value = ret.get(by)
                         .cloned()
-                        .ok_or(BinToJsonError::ByKeyNotFound(by.clone()))?
+                        .ok_or(ReadBinError::ByKeyNotFound(by.clone()))?
                         .into();
 
                     *length = Length::Fixed(
                         by_value.as_u64()
-                            .ok_or(BinToJsonError::LengthTargetIsInvalid(by.clone()))? as usize
+                            .ok_or(ReadBinError::LengthTargetIsInvalid(by.clone()))? as usize
                     )
                 }
             }
@@ -88,13 +94,13 @@ impl BinToJson for Struct {
                 let key = ret.get(by)
                     .cloned()
                     .map::<serde_json::Value, _>(|v| v.into())
-                    .ok_or(BinToJsonError::ByKeyNotFound(by.clone()))?
+                    .ok_or(ReadBinError::ByKeyNotFound(by.clone()))?
                     .as_i64()
-                    .ok_or(BinToJsonError::LengthTargetIsInvalid(by.clone()))?;
+                    .ok_or(ReadBinError::LengthTargetIsInvalid(by.clone()))?;
 
                 ty = map.get(&key)
                     .cloned()
-                    .ok_or(BinToJsonError::EnumKeyNotFound(key))?;
+                    .ok_or(ReadBinError::EnumKeyNotFound(key))?;
             }
 
             let (v, d2) = ty.read(d)?;
