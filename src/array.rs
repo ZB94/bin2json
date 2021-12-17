@@ -1,13 +1,26 @@
-use crate::{BinToJson, BytesSize, get_data_by_size, Type};
+use crate::{BinToJson, BitSlice, BytesSize, get_data_by_size, Msb0, Type};
 use crate::error::BinToJsonError;
 use crate::Value;
 
 #[derive(Debug, Clone)]
+pub enum Length {
+    Fixed(usize),
+    By(String),
+    None,
+}
+
+impl Length {
+    pub fn by_field<S: Into<String>>(field: S) -> Self {
+        Self::By(field.into())
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Array {
-    /// 元素定义
+    /// 元素类型
     pub ty: Box<Type>,
-    /// 数组长度，如果为`None`，则尽可能转换
-    pub length: Option<usize>,
+    /// 数组长度
+    pub length: Length,
     pub size: Option<BytesSize>,
 }
 
@@ -15,7 +28,7 @@ impl Array {
     pub fn new(ty: Type) -> Self {
         Self {
             ty: Box::new(ty),
-            length: None,
+            length: Length::None,
             size: None,
         }
     }
@@ -23,30 +36,47 @@ impl Array {
     pub fn new_with_length(ty: Type, length: usize) -> Self {
         Self {
             ty: Box::new(ty),
-            length: Some(length),
+            length: Length::Fixed(length),
+            size: None,
+        }
+    }
+
+    pub fn new_with_length_by<S: Into<String>>(ty: Type, by: S) -> Self {
+        Self {
+            ty: Box::new(ty),
+            length: Length::by_field(by),
             size: None,
         }
     }
 }
 
 impl BinToJson for Array {
-    fn read<'a>(&self, data: &'a [u8]) -> Result<(Value, &'a [u8]), BinToJsonError> {
-        let mut data = get_data_by_size(data, &self.size)?;
-        let mut ret = self.length.map(|s| Vec::with_capacity(s))
-            .unwrap_or_default();
+    fn read<'a>(&self, data: &'a BitSlice<Msb0, u8>) -> Result<(Value, &'a BitSlice<Msb0, u8>), BinToJsonError> {
+        let src = data;
+        let mut data = if let Some(size) = &self.size {
+            get_data_by_size(data, size, None)?
+        } else {
+            data
+        };
+        let data_len = data.len();
 
-        let size = self.length.unwrap_or_default();
+        let (mut ret, len) = match &self.length {
+            Length::Fixed(size) => (Vec::with_capacity(*size), *size),
+            Length::None => (vec![], 0),
+            Length::By(by) => return Err(BinToJsonError::ByKeyNotFound(by.clone()))
+        };
+
         loop {
             match self.ty.read(data) {
                 Ok((s, d)) => {
                     data = d;
                     ret.push(s);
-                    if size > 0 && ret.len() == size {
+                    if len > 0 && ret.len() == len {
                         break;
                     }
                 }
                 Err(_) => {
-                    if size == 0 {
+                    if len == 0 {
                         break;
                     } else {
                         return Err(BinToJsonError::Incomplete);
@@ -55,6 +85,6 @@ impl BinToJson for Array {
             }
         }
 
-        Ok((Value::Array(ret), data))
+        Ok((Value::Array(ret), &src[data_len - data.len()..]))
     }
 }

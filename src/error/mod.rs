@@ -3,27 +3,25 @@ use std::string::FromUtf8Error;
 
 use deku::DekuError;
 
-
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq)]
 pub enum BinToJsonError {
-    #[error("魔法值不对应")]
-    MagicError,
+    #[error("魔法值({0:?})不对应")]
+    MagicError(Vec<u8>),
     #[error("Deku错误: {0}")]
     DekuError(DekuError),
-    #[error("指向的长度字段的值无效")]
-    LengthTargetIsInvalid,
+    #[error("指向的长度字段({0})的值无效")]
+    LengthTargetIsInvalid(String),
     #[error("输入数据不是合法字符串: {0}")]
     Utf8Error(#[from] Utf8Error),
-    #[error("未能找到引用的键")]
-    ByKeyNotFound,
-    #[error("未能找到以指定值结尾的数据")]
-    EndNotFound,
+    #[error("未能找到引用的键({0})")]
+    ByKeyNotFound(String),
+    #[error("未能找到以指定值结尾({0:?})的数据")]
+    EndNotFound(Vec<u8>),
     #[error("输入数据不完整")]
     Incomplete,
-    #[error("未能找到枚举值")]
-    EnumKeyNotFound,
+    #[error("未能找到枚举值({0})")]
+    EnumKeyNotFound(i64),
 }
-
 
 impl From<FromUtf8Error> for BinToJsonError {
     fn from(e: FromUtf8Error) -> Self {

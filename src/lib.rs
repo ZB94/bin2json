@@ -3,8 +3,15 @@ extern crate serde;
 #[macro_use]
 extern crate thiserror;
 
+use std::collections::HashMap;
+
+use deku::{DekuError, DekuRead};
+use deku::bitvec::{BitSlice, Msb0};
+pub use deku::bitvec;
+use deku::ctx::Limit;
+
 pub use _struct::Struct;
-pub use array::Array;
+pub use array::{Array, Length};
 pub use ty::{BytesSize, Endian, Size, Type, Unit};
 pub use value::Value;
 
@@ -21,32 +28,65 @@ mod array;
 mod tests;
 
 pub trait BinToJson {
-    fn read<'a>(&self, data: &'a [u8]) -> Result<(Value, &'a [u8]), BinToJsonError>;
+    fn read<'a>(&self, data: &'a BitSlice<Msb0, u8>) -> Result<(Value, &'a BitSlice<Msb0, u8>), BinToJsonError>;
 
-    fn read_to_json<'a>(&self, data: &'a [u8]) -> Result<(serde_json::Value, &'a [u8]), BinToJsonError> {
+    fn read_to_json<'a>(&self, data: &'a BitSlice<Msb0, u8>) -> Result<(serde_json::Value, &'a BitSlice<Msb0, u8>), BinToJsonError> {
         self.read(data)
             .map(|(v, d)| (v.into(), d))
     }
 }
 
-pub(crate) fn get_data_by_size<'a>(data: &'a [u8], size: &Option<BytesSize>) -> Result<&'a [u8], BinToJsonError> {
-    match size {
-        Some(BytesSize::By(_) | BytesSize::Enum { .. }) => Err(BinToJsonError::ByKeyNotFound),
-        Some(BytesSize::All) | None => Ok(data),
-        Some(BytesSize::Fixed(size)) => if data.len() >= *size {
-            Ok(&data[..*size])
-        } else {
-            Err(BinToJsonError::Incomplete)
+pub(crate) fn get_data_by_size<'a>(
+    data: &'a BitSlice<Msb0, u8>,
+    size: &BytesSize,
+    by_map: Option<&HashMap<String, Value>>,
+) -> Result<&'a BitSlice<Msb0, u8>, BinToJsonError> {
+    let len = match size {
+        BytesSize::All => return Ok(data),
+        BytesSize::Fixed(size) => *size,
+        BytesSize::EndWith(with) => {
+            let with_end_error = |e: DekuError| -> BinToJsonError {
+                if let DekuError::Incomplete(_) = &e {
+                    BinToJsonError::EndNotFound(with.clone())
+                } else {
+                    e.into()
+                }
+            };
+
+            let (mut d, mut v) = Vec::<u8>::read(data, Limit::new_count(with.len()))
+                .map_err(with_end_error)?;
+            while !v.ends_with(with) {
+                let (d2, b) = u8::read(d, ()).map_err(with_end_error)?;
+                v.push(b);
+                d = d2;
+            }
+            v.len()
         }
-        Some(BytesSize::EndWith(with)) => {
-            let size = data.windows(with.len())
-                .position(|w| w == with)
-                .ok_or(BinToJsonError::EndNotFound)?;
-            if data.len() >= size {
-                Ok(&data[..size])
+        BytesSize::By(ref by) | BytesSize::Enum { ref by, .. } => {
+            if let Some(map) = by_map {
+                let by_value: serde_json::Value = map.get(by)
+                    .cloned()
+                    .ok_or(BinToJsonError::ByKeyNotFound(by.clone()))?
+                    .into();
+
+                if let BytesSize::Enum { map, .. } = size {
+                    by_value.as_i64()
+                        .and_then(|k| map.get(&k).copied())
+                } else {
+                    by_value.as_u64()
+                        .map(|s| s as usize)
+                }
+                    .ok_or(BinToJsonError::LengthTargetIsInvalid(by.clone()))?
             } else {
-                Err(BinToJsonError::Incomplete)
+                return Err(BinToJsonError::ByKeyNotFound(by.clone()));
             }
         }
+    };
+
+    let bits_len = len * 8;
+    if data.len() >= bits_len {
+        Ok(&data[..bits_len])
+    } else {
+        Err(BinToJsonError::Incomplete)
     }
 }

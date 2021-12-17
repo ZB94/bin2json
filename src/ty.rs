@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
-use deku::bitvec::BitView;
+use deku::bitvec::Msb0;
 pub use deku::ctx::{Endian, Size};
 use deku::ctx::Limit;
 use deku::prelude::*;
 
-use crate::{Array, BinToJson, Struct};
+use crate::{Array, BinToJson, BitSlice, get_data_by_size, Struct};
 use crate::_struct::Field;
 use crate::error::BinToJsonError;
 use crate::Value;
@@ -13,7 +13,7 @@ use crate::Value;
 #[derive(Debug, Clone)]
 pub enum Type {
     Magic(Vec<u8>),
-    Boolean(Unit),
+    Boolean { bit: bool },
     Int8(Unit),
     Int16(Unit),
     Int32(Unit),
@@ -36,14 +36,11 @@ pub enum Type {
 }
 
 impl Type {
+    pub const BOOL_BIT: Type = Type::Boolean { bit: true };
+    pub const BOOL: Type = Type::Boolean { bit: false };
+
     pub fn magic(magic: &[u8]) -> Self {
         Self::Magic(magic.to_vec())
-    }
-    pub fn bool() -> Self {
-        Self::Boolean(Unit::big_endian())
-    }
-    pub fn bit_bool() -> Self {
-        Self::Boolean(Unit::new(Endian::Big, Some(Size::Bits(1))))
     }
     pub fn int8() -> Self {
         Self::Int8(Default::default())
@@ -75,8 +72,7 @@ macro_rules! parse_numeric_field {
 }
 
 impl BinToJson for Type {
-    fn read<'a>(&self, data: &'a [u8]) -> Result<(Value, &'a [u8]), BinToJsonError> {
-        let data = data.view_bits();
+    fn read<'a>(&self, data: &'a BitSlice<Msb0, u8>) -> Result<(Value, &'a BitSlice<Msb0, u8>), BinToJsonError> {
         let (value, data): (Value, _) = match self {
             Self::Magic(ref magic) => {
                 let (input, value): (_, Vec<u8>) = DekuRead::read(
@@ -87,11 +83,13 @@ impl BinToJson for Type {
                 if magic == &value {
                     (value.into(), input)
                 } else {
-                    return Err(BinToJsonError::MagicError);
+                    return Err(BinToJsonError::MagicError(magic.clone()));
                 }
             }
-            Self::Boolean(unit) => {
-                parse_numeric_field!(data, field.name, bool, unit, Size::Bytes(1))
+            Self::Boolean { bit } => {
+                let size = if *bit { Size::Bits(1) } else { Size::Bytes(1) };
+                let (input, v) = bool::read(data, size)?;
+                (v.into(), input)
             }
             Self::Int8(unit) => {
                 parse_numeric_field!(data, field.name, i8, unit, Size::Bytes(1))
@@ -125,50 +123,27 @@ impl BinToJson for Type {
                 let (input, v) = f64::read(data, *endian)?;
                 (v.into(), input)
             }
-            Self::String(ref len) | Type::Bin(ref len) => {
-                let (input, v): (_, Vec<u8>) = match len {
-                    BytesSize::All => {
-                        DekuRead::read(data, Limit::new_size(Size::Bits(data.len())))?
-                    }
-                    BytesSize::Fixed(len) => {
-                        DekuRead::read(data, Limit::new_count(*len))?
-                    }
-                    BytesSize::EndWith(with) => {
-                        let (mut i, mut d): (_, Vec<u8>) = DekuRead::read(
-                            data,
-                            Limit::new_count(with.len()),
-                        )?;
-                        while !d.ends_with(with) {
-                            let (i2, b) = u8::read(i, ())
-                                .map_err(|_| BinToJsonError::EndNotFound)?;
-                            i = i2;
-                            d.push(b);
-                        }
-                        (i, d)
-                    }
-                    BytesSize::By(_) | BytesSize::Enum { .. } => {
-                        return Err(BinToJsonError::ByKeyNotFound);
-                    }
-                };
+            Self::String(ref size) | Type::Bin(ref size) => {
+                let d = get_data_by_size(data, size, None)?;
+                let d_len = d.len();
 
+                let (_, v) = Vec::<u8>::read(data, Limit::new_size(Size::Bits(d_len)))?;
                 let v = if let Type::String(_) = self {
                     String::from_utf8(v)?.into()
                 } else {
                     v.into()
                 };
-                (v, input)
+                (v, &data[d_len..])
             }
             Self::Struct(s) => {
-                s.read(data.as_raw_slice())
-                    .map(|(v, d)| (v, d.view_bits()))?
+                s.read(data)?
             }
             Self::Array(a) => {
-                a.read(data.as_raw_slice())
-                    .map(|(v, d)| (v, d.view_bits()))?
+                a.read(data)?
             }
-            Self::Enum { .. } => return Err(BinToJsonError::ByKeyNotFound),
+            Self::Enum { by, .. } => return Err(BinToJsonError::ByKeyNotFound(by.clone())),
         };
-        Ok((value, data.as_raw_slice()))
+        Ok((value, data))
     }
 }
 
