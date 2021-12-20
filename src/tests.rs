@@ -69,10 +69,10 @@ fn test_array_read() {
     ]));
     assert_eq!(array.read_to_json(b"".view_bits()).unwrap().0, json!([]));
 
-    array.length = Length::Fixed(1);
+    array.length = Some(Length::Fixed(1));
     assert_eq!(array.read_to_json(b"333322211".view_bits()).unwrap(), (json!([{ "id": '3' as u8, "data": "333" }]), b"22211".view_bits()));
 
-    array.length = Length::Fixed(4);
+    array.length = Some(Length::Fixed(4));
     assert!(array.read_to_json(b"333322211".view_bits()).is_err());
 }
 
@@ -148,7 +148,7 @@ fn test_read() {
                                 Field::new("code_len", Type::uint8()),
                                 Field::new("code_list", Type::Array(Array {
                                     ty: Box::new(Type::Uint32(Unit::big_endian())),
-                                    length: Length::by_field("code_len"),
+                                    length: Some(Length::by_field("code_len")),
                                     size: None,
                                 })),
                             ])),

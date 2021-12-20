@@ -2,16 +2,17 @@ use std::collections::HashMap;
 
 use deku::bitvec::BitSlice;
 
-use crate::{Array, ReadBin, get_data_by_size, Length, Msb0, Type, Value};
+use crate::{Array, get_data_by_size, Length, Msb0, ReadBin, Type, Value};
 use crate::error::ReadBinError;
 use crate::ty::BytesSize;
 
 /// 结构定义
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Struct {
     /// 结构的字段列表
     pub fields: Vec<Field>,
     /// 手动指定结构的总字节大小
+    #[serde(default)]
     pub size: Option<BytesSize>,
 }
 
@@ -32,11 +33,12 @@ impl Struct {
 }
 
 /// 结构字段
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Field {
     /// 字段名称
     pub name: String,
     /// 字段类型
+    #[serde(flatten)]
     pub ty: Type,
 }
 
@@ -63,7 +65,7 @@ impl ReadBin for Struct {
         for Field { name, ty } in &self.fields {
             let mut ty = ty.clone();
 
-            if let Type::Array(Array { length, .. }) = &mut ty {
+            if let Type::Array(Array { length: Some(length), .. }) = &mut ty {
                 if let Length::By(by) = length {
                     let by_value: serde_json::Value = ret.get(by)
                         .cloned()

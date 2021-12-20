@@ -1,18 +1,26 @@
-use crate::{ReadBin, BitSlice, BytesSize, get_data_by_size, Msb0, Type};
+use crate::{BitSlice, BytesSize, get_data_by_size, Msb0, ReadBin, Type};
 use crate::error::ReadBinError;
 use crate::Value;
 
 /// 数组长度
-#[derive(Debug, Clone)]
+///
+/// **示例：**
+/// ```rust
+/// use bin2json::Length;
+///
+/// let length: Length = serde_json::from_str(r#"100"#).unwrap();
+/// assert_eq!(length, Length::Fixed(100));
+///
+/// let length: Length = serde_json::from_str(r#""field_name""#).unwrap();
+/// assert_eq!(length, Length::By("field_name".to_string()));
+/// ```
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
 pub enum Length {
     /// 固定长度
     Fixed(usize),
     /// 通过指定字段指定。*使用该枚举时数据的定义应包含在结构体中，且指定的字段顺序应在数组之前*
     By(String),
-    /// 不限制
-    ///
-    /// 当数组使用该枚举值作为长度读取数据时，数组会不断尝试读取成员值，在读取出错或数据不足以继续读取时结束
-    None,
 }
 
 impl Length {
@@ -22,13 +30,16 @@ impl Length {
 }
 
 /// 数组
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Array {
     /// 元素类型
+    #[serde(flatten)]
     pub ty: Box<Type>,
     /// 数组长度
-    pub length: Length,
+    #[serde(default)]
+    pub length: Option<Length>,
     /// 手动指定数组的总字节大小
+    #[serde(default, rename = "array_size")]
     pub size: Option<BytesSize>,
 }
 
@@ -36,7 +47,7 @@ impl Array {
     pub fn new(ty: Type) -> Self {
         Self {
             ty: Box::new(ty),
-            length: Length::None,
+            length: None,
             size: None,
         }
     }
@@ -44,7 +55,7 @@ impl Array {
     pub fn new_with_length(ty: Type, length: usize) -> Self {
         Self {
             ty: Box::new(ty),
-            length: Length::Fixed(length),
+            length: Some(Length::Fixed(length)),
             size: None,
         }
     }
@@ -52,7 +63,7 @@ impl Array {
     pub fn new_with_length_by<S: Into<String>>(ty: Type, by: S) -> Self {
         Self {
             ty: Box::new(ty),
-            length: Length::by_field(by),
+            length: Some(Length::by_field(by)),
             size: None,
         }
     }
@@ -69,9 +80,9 @@ impl ReadBin for Array {
         let data_len = data.len();
 
         let (mut ret, len) = match &self.length {
-            Length::Fixed(size) => (Vec::with_capacity(*size), *size),
-            Length::None => (vec![], 0),
-            Length::By(by) => return Err(ReadBinError::ByKeyNotFound(by.clone()))
+            Some(Length::Fixed(size)) => (Vec::with_capacity(*size), *size),
+            Some(Length::By(by)) => return Err(ReadBinError::ByKeyNotFound(by.clone())),
+            None => (vec![], 0),
         };
 
         loop {

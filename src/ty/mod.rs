@@ -5,13 +5,20 @@ pub use deku::ctx::{Endian, Size};
 use deku::ctx::Limit;
 use deku::prelude::*;
 
+pub use bytes_size::BytesSize;
+pub use unit::Unit;
+
 use crate::{Array, BitSlice, get_data_by_size, ReadBin, Struct};
 use crate::_struct::Field;
 use crate::error::ReadBinError;
 use crate::Value;
 
+mod bytes_size;
+mod unit;
+
 /// 数据类型
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "content")]
 pub enum Type {
     /// 魔法值。即一段固定数据值
     Magic(Vec<u8>),
@@ -20,15 +27,17 @@ pub enum Type {
         /// 是否是位数据。如果是则进度去1比特位的数据作为该值，否则读取1字节。
         bit: bool
     },
-    Int8(Unit),
-    Int16(Unit),
-    Int32(Unit),
-    Int64(Unit),
-    Uint8(Unit),
-    Uint16(Unit),
-    Uint32(Unit),
-    Uint64(Unit),
+    Int8(#[serde(default)] Unit),
+    Int16(#[serde(default)] Unit),
+    Int32(#[serde(default)] Unit),
+    Int64(#[serde(default)] Unit),
+    Uint8(#[serde(default)] Unit),
+    Uint16(#[serde(default)] Unit),
+    Uint32(#[serde(default)] Unit),
+    Uint64(#[serde(default)] Unit),
+    #[serde(with = "EndianDef")]
     Float32(Endian),
+    #[serde(with = "EndianDef")]
     Float64(Endian),
     /// UTF8字符串
     String(BytesSize),
@@ -48,6 +57,7 @@ pub enum Type {
         /// 枚举值对应的类型
         map: HashMap<i64, Type>,
         /// 手动指定枚举的总字节大小
+        #[serde(default)]
         size: Option<BytesSize>,
     },
 }
@@ -166,76 +176,9 @@ impl ReadBin for Type {
     }
 }
 
-/// 类型的大小与字节顺序
-#[derive(Debug, Copy, Clone)]
-pub struct Unit {
-    /// 字节顺序
-    pub endian: Endian,
-    /// 实际要读取的大小
-    pub size: Option<Size>,
-}
-
-impl Unit {
-    pub fn new(endian: Endian, size: Size) -> Self {
-        Self {
-            endian,
-            size: Some(size),
-        }
-    }
-
-    pub const fn big_endian() -> Self {
-        Self {
-            endian: Endian::Big,
-            size: None,
-        }
-    }
-
-    pub const fn little_endian() -> Self {
-        Self {
-            endian: Endian::Little,
-            size: None,
-        }
-    }
-}
-
-impl Default for Unit {
-    fn default() -> Self {
-        Self {
-            endian: Endian::Big,
-            size: None,
-        }
-    }
-}
-
-/// 总字节大小
-#[derive(Debug, Clone)]
-pub enum BytesSize {
-    /// 所有数据
-    All,
-    /// 固定长度
-    Fixed(usize),
-    /// 以指定数据结尾
-    EndWith(Vec<u8>),
-    /// 通过指定字段的值。指定字段的类型必须为整数
-    By(String),
-    /// 根据指定字段的值有不同的大小，指定字段的类型必须为整数
-    Enum {
-        /// 字段名称
-        by: String,
-        /// 键为指定字段的值，值为大小
-        map: HashMap<i64, usize>,
-    },
-}
-
-impl BytesSize {
-    pub fn by_enum<S: Into<String>>(target_field: S, map: HashMap<i64, usize>) -> Self {
-        Self::Enum {
-            by: target_field.into(),
-            map,
-        }
-    }
-
-    pub fn by_field<S: Into<String>>(target: S) -> Self {
-        Self::By(target.into())
-    }
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "Endian")]
+enum EndianDef {
+    Little,
+    Big,
 }
