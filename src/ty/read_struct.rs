@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use crate::{Array, BitSlice, BytesSize, get_data_by_size, Length, Msb0, ReadBin, ReadBinError, Type, Value};
-use crate::ty::Field;
+use crate::{BitSlice, BytesSize, get_data_by_size, Msb0, ReadBin, ReadBinError, Type, Value};
+use crate::ty::{Field, Length};
 
 pub fn read_struct<'a>(fields: &[Field], size: &Option<BytesSize>, data: &'a BitSlice<Msb0, u8>) -> Result<(Value, &'a BitSlice<Msb0, u8>), ReadBinError> {
     let src = data;
@@ -11,7 +11,7 @@ pub fn read_struct<'a>(fields: &[Field], size: &Option<BytesSize>, data: &'a Bit
 
     for Field { name, ty } in fields {
         let mut ty = ty.clone();
-        if let Type::Array { define: Array { length: Some(length), .. } } = &mut ty {
+        if let Type::Array { length: Some(length), .. } = &mut ty {
             if let Length::By(by) = length {
                 let by_value: serde_json::Value = ret.get(by)
                     .cloned()
@@ -27,7 +27,7 @@ pub fn read_struct<'a>(fields: &[Field], size: &Option<BytesSize>, data: &'a Bit
 
         let (d, fixed_size) = if let Type::Bin { size }
         | Type::String { size }
-        | Type::Array { define: Array { size, .. } }
+        | Type::Array { size, .. }
         | Type::Struct { size, .. }
         | Type::Enum { size, .. }
         = &mut ty {

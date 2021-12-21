@@ -3,12 +3,14 @@ pub use deku::ctx::{Endian, Size};
 use deku::ctx::Limit;
 use deku::prelude::*;
 
+pub use array_length::Length;
 pub use bytes_size::BytesSize;
 pub use field::Field;
+use read_array::read_array;
 use read_struct::read_struct;
 pub use unit::Unit;
 
-use crate::{Array, BitSlice, get_data_by_size, ReadBin};
+use crate::{BitSlice, get_data_by_size, ReadBin};
 use crate::error::ReadBinError;
 use crate::range::KeyRangeMap;
 use crate::Value;
@@ -17,6 +19,8 @@ mod bytes_size;
 mod unit;
 mod read_struct;
 mod field;
+mod read_array;
+mod array_length;
 
 /// 数据类型
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -92,7 +96,11 @@ pub enum Type {
     /// 数组
     Array {
         #[serde(flatten)]
-        define: Array,
+        ty: Box<Type>,
+        #[serde(default)]
+        length: Option<Length>,
+        #[serde(default)]
+        size: Option<BytesSize>,
     },
     /// 枚举。
     ///
@@ -176,7 +184,15 @@ impl Type {
     }
 
     pub fn new_array(ty: Type) -> Self {
-        Self::Array { define: Array::new(ty) }
+        Self::Array { ty: Box::new(ty), size: None, length: None }
+    }
+
+    pub fn new_array_with_size(ty: Type, size: BytesSize) -> Self {
+        Self::Array { ty: Box::new(ty), size: Some(size), length: None }
+    }
+
+    pub fn new_array_with_length(ty: Type, length: Length) -> Self {
+        Self::Array { ty: Box::new(ty), size: None, length: Some(length) }
     }
 
     pub fn new_enum<S: Into<String>, M: Into<KeyRangeMap<Type>>>(by: S, map: M) -> Self {
@@ -263,8 +279,8 @@ impl ReadBin for Type {
             Self::Struct { fields, size } => {
                 read_struct(fields, size, data)?
             }
-            Self::Array { define } => {
-                define.read(data)?
+            Self::Array { ty, size, length } => {
+                read_array(ty, length, size, data)?
             }
             Self::Enum { by, .. } => return Err(ReadBinError::ByKeyNotFound(by.clone())),
         };

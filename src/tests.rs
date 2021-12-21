@@ -2,8 +2,8 @@ use deku::bitvec::BitView;
 use deku::ctx::{Endian, Size};
 use serde_json::json;
 
-use crate::{Array, BytesSize, Field, Length, range_map, ReadBin, Type, Value};
-use crate::ty::Unit;
+use crate::{BytesSize, Field, range_map, ReadBin, Type, Value};
+use crate::ty::{Length, Unit};
 
 #[test]
 pub fn test_read_struct() {
@@ -46,7 +46,7 @@ pub fn test_read_struct() {
 
 #[test]
 fn test_read_array() {
-    let mut array = Array::new(Type::new_struct(vec![
+    let mut array = Type::new_array(Type::new_struct(vec![
         Field::new("id", Type::uint8()),
         Field::new("data", Type::string(BytesSize::by_enum("id", range_map! {
             '1' as i64 => 1,
@@ -63,10 +63,14 @@ fn test_read_array() {
     ]));
     assert_eq!(array.read_to_json(b"".view_bits()).unwrap().0, json!([]));
 
-    array.length = Some(Length::Fixed(1));
+    if let Type::Array { length, .. } = &mut array {
+        *length = Some(Length::Fixed(1));
+    }
     assert_eq!(array.read_to_json(b"333322211".view_bits()).unwrap(), (json!([{ "id": '3' as u8, "data": "333" }]), b"22211".view_bits()));
 
-    array.length = Some(Length::Fixed(4));
+    if let Type::Array { length, .. } = &mut array {
+        *length = Some(Length::Fixed(4));
+    }
     assert!(array.read_to_json(b"333322211".view_bits()).is_err());
 }
 
@@ -83,7 +87,7 @@ fn test_read_enum() {
             ),
         )),
     ]);
-    let array = Array::new(_enum);
+    let array = Type::new_array(_enum);
 
     let data = b"\x01hello\x02world\x03\x00\x00\x00\xff";
     assert_eq!(array.read_to_json(data.view_bits()).unwrap(), (json!([
@@ -136,9 +140,7 @@ fn test_read() {
                                 Field::new("cvn", Type::string(BytesSize::Fixed(18))),
                                 Field::new("iupr", Type::string(BytesSize::Fixed(36))),
                                 Field::new("code_len", Type::uint8()),
-                                Field::new("code_list", Type::Array {
-                                    define: Array::new_with_length_by(Type::uint32(Endian::Big), "code_len")
-                                })
+                                Field::new("code_list",Type::new_array_with_length(Type::uint32(Endian::Big), Length::by_field("code_len")))
                             ]),
                             2 => Type::new_struct(vec![
                                 Field::new("speed", Type::uint16(Endian::Big)),

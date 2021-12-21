@@ -10,7 +10,6 @@ use deku::bitvec::{BitSlice, Msb0};
 pub use deku::bitvec;
 use deku::ctx::Limit;
 
-pub use array::{Array, Length};
 pub use ty::{BytesSize, Endian, Field, Size, Type, Unit};
 pub use value::Value;
 
@@ -20,7 +19,6 @@ pub mod error;
 pub mod ty;
 
 mod value;
-mod array;
 pub mod range;
 
 #[cfg(test)]
