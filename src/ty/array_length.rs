@@ -4,11 +4,12 @@
 /// ```rust
 /// use bin2json::ty::Length;
 ///
-/// let length: Length = serde_json::from_str(r#"100"#).unwrap();
-/// assert_eq!(length, Length::Fixed(100));
+/// let length: Length = serde_json::from_str(r#"100"#)?;
+/// assert_eq!(Length::Fixed(100), length);
 ///
-/// let length: Length = serde_json::from_str(r#""field_name""#).unwrap();
-/// assert_eq!(length, Length::By("field_name".to_string()));
+/// let length: Length = serde_json::from_str(r#""field_name""#)?;
+/// assert_eq!(Length::By("field_name".to_string()), length);
+/// # Ok::<_, serde_json::Error>(())
 /// ```
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]

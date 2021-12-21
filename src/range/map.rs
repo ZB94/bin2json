@@ -3,14 +3,6 @@ use std::fmt::Debug;
 
 use super::KeyRange;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(into = "HashMap<KeyRange, V>", from = "HashMap<KeyRange, V>")]
-pub struct KeyRangeMap<V: Clone> {
-    value_map: HashMap<i64, V>,
-    range_map: HashMap<KeyRange, V>,
-    default: Option<Box<V>>,
-}
-
 /// 快速创建[`KeyRangeMap`]
 ///
 /// **示例:**
@@ -24,6 +16,34 @@ pub struct KeyRangeMap<V: Clone> {
 ///     ((..).into(), 5)
 /// ]);
 /// assert_eq!(range_map!(1 => 2, 3.. => 4, .. => 5), map);
+///
+/// let json = r#"
+/// {
+///     "1": 2,
+///     "3..": 4,
+///     "..": 5
+/// }
+/// "#;
+/// assert_eq!(serde_json::from_str::<KeyRangeMap<i32>>(json)?, map);
+/// # Ok::<(), serde_json::Error>(())
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(into = "HashMap<KeyRange, V>", from = "HashMap<KeyRange, V>")]
+pub struct KeyRangeMap<V: Clone> {
+    value_map: HashMap<i64, V>,
+    range_map: HashMap<KeyRange, V>,
+    default: Option<Box<V>>,
+}
+
+/// 快速创建[`KeyRangeMap`]
+///
+/// **示例:**
+/// ```ignore
+/// range_map! {
+///     range1 => value1,
+///     range2 => value2,
+///     ..
+/// }
 /// ```
 #[macro_export]
 macro_rules! range_map {

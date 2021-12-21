@@ -1,9 +1,9 @@
 use deku::bitvec::BitView;
-use deku::ctx::{Endian, Size};
+use deku::ctx::Size;
 use serde_json::json;
 
-use crate::{BytesSize, Field, range_map, ReadBin, Type, Value};
-use crate::ty::{Length, Unit};
+use crate::{range_map, ReadBin, Type, Value};
+use crate::ty::{BytesSize, Endian, Field, Length, Unit};
 
 #[test]
 pub fn test_read_struct() {

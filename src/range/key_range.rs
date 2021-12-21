@@ -2,6 +2,22 @@ use std::fmt::Display;
 use std::ops::{Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive};
 use std::str::FromStr;
 
+/// 引用键范围
+///
+/// **完整序列化示例(json)：**
+/// ```rust
+/// use bin2json::range::KeyRange;
+///
+/// assert_eq!(KeyRange::Value(100), serde_json::from_str::<KeyRange>(r#""100""#)?);
+/// assert_eq!(KeyRange::Range(100..200), serde_json::from_str::<KeyRange>(r#""100..200""#)?);
+/// assert_eq!(KeyRange::RangeFrom(100..), serde_json::from_str::<KeyRange>(r#""100..""#)?);
+/// assert_eq!(KeyRange::Full, serde_json::from_str::<KeyRange>(r#""..""#)?);
+/// assert_eq!(KeyRange::RangeInclusive(100..=200), serde_json::from_str::<KeyRange>(r#""100..=200""#)?);
+/// assert_eq!(KeyRange::RangeTo(..200), serde_json::from_str::<KeyRange>(r#""..200""#)?);
+/// assert_eq!(KeyRange::RangeToInclusive(..=200), serde_json::from_str::<KeyRange>(r#""..=200""#)?);
+/// assert_eq!(KeyRange::Custom(vec![1, 2, 3]), serde_json::from_str::<KeyRange>(r#""[1, 2, 3]""#)?);
+/// # Ok::<(), serde_json::Error>(())
+/// ```
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub enum KeyRange {

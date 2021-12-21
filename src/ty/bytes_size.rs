@@ -4,7 +4,7 @@ use crate::range::KeyRangeMap;
 ///
 /// **示例：**
 /// ```rust
-/// use bin2json::BytesSize;
+/// use bin2json::ty::BytesSize;
 ///
 /// let bs: BytesSize = serde_json::from_str(r#"100"#).unwrap();
 /// assert_eq!(bs, BytesSize::Fixed(100));

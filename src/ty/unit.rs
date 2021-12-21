@@ -1,40 +1,41 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use super::{Endian, EndianDef, Size};
+use super::{Endian, Size};
 
 /// 类型的大小与字节顺序
 ///
+/// 默认`endian`为[`Endian::Big`]，`size`为[`None`]
 /// **示例：**
 /// ```rust
-/// use bin2json::{Endian, Size, Unit};
+/// use bin2json::ty::{Endian, Size, Unit};
 ///
 /// let unit: Unit = serde_json::from_str(r#"
 /// {
 ///     "endian": "Little"
 /// }
-/// "#).unwrap();
-/// assert_eq!(unit, Unit {endian: Endian::Little, size: None});
+/// "#)?;
+/// assert_eq!( Unit { endian: Endian::Little, size: None }, unit);
 ///
 /// let unit: Unit = serde_json::from_str(r#"
 /// {
 ///     "endian": "Little",
 ///     "size": { "type": "Bits", "value": 100 }
 /// }
-/// "#).unwrap();
-/// assert_eq!(unit, Unit {endian: Endian::Little, size: Some(Size::Bits(100))});
+/// "#)?;
+/// assert_eq!(Unit { endian: Endian::Little, size: Some(Size::Bits(100)) }, unit);
 ///
 /// let unit: Unit = serde_json::from_str(r#"
 /// {
 ///     "endian": "Big",
 ///     "size": { "type": "Bytes", "value": 200 }
 /// }
-/// "#).unwrap();
+/// "#)?;
 /// assert_eq!(unit, Unit {endian: Endian::Big, size: Some(Size::Bytes(200))});
+/// # Ok::<_, serde_json::Error>(())
 /// ```
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Unit {
     /// 字节顺序
-    #[serde(with = "EndianDef")]
     pub endian: Endian,
     /// 实际要读取的大小
     #[serde(default)]

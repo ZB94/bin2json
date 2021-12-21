@@ -10,10 +10,11 @@ use deku::bitvec::{BitSlice, Msb0};
 pub use deku::bitvec;
 use deku::ctx::Limit;
 
-pub use ty::{BytesSize, Endian, Field, Size, Type, Unit};
+pub use error::ReadBinError;
+pub use ty::Type;
 pub use value::Value;
 
-use crate::error::ReadBinError;
+use crate::ty::BytesSize;
 
 pub mod error;
 pub mod ty;
