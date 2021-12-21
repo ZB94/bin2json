@@ -2,14 +2,13 @@ use deku::bitvec::BitView;
 use deku::ctx::{Endian, Size};
 use serde_json::json;
 
-use crate::{Array, BytesSize, Length, range_map, ReadBin, Type, Value};
-use crate::_struct::{Field, Struct};
+use crate::{Array, BytesSize, Field, Length, range_map, ReadBin, Type, Value};
 use crate::ty::Unit;
 
 #[test]
 pub fn test_read_struct() {
-    let message = Struct {
-        fields: vec![
+    let message = Type::new_struct(
+        vec![
             Field::new("head", Type::magic(b"##")),
             Field::new("cmd", Type::uint8()),
             Field::new("device_id", Type::string(BytesSize::Fixed(17))),
@@ -18,9 +17,7 @@ pub fn test_read_struct() {
             Field::new("data_len", Type::uint16(Endian::Big)),
             Field::new("data", Type::bin(BytesSize::new("data_len"))),
             Field::new("check", Type::uint8()),
-        ],
-        size: None,
-    };
+        ]);
     let data = b"##\x0212345678901234567\x01\x01\x00\x1f\x15\x08\x1e\x0b\x05\x0c\x00\x01\x00\x06\xc9MH\x01X\xf4\xd8\x80\x002\x00d\x00\x96\x00\x01\x00\x02\x00\x00\x1e\xce";
     let (de, d) = message.read(data.view_bits()).unwrap();
     assert_eq!(0, d.len());
@@ -30,14 +27,11 @@ pub fn test_read_struct() {
     assert_eq!(de["data_len"], 31u16.into());
     assert_eq!(de["check"], 0xce_u8.into());
 
-    let body = Struct {
-        fields: vec![
-            Field::new("datetime", Type::bin(BytesSize::Fixed(6))),
-            Field::new("number", Type::uint16(Endian::Big)),
-            Field::new("list", Type::Bin { size: None }),
-        ],
-        size: None,
-    };
+    let body = Type::new_struct(vec![
+        Field::new("datetime", Type::bin(BytesSize::Fixed(6))),
+        Field::new("number", Type::uint16(Endian::Big)),
+        Field::new("list", Type::Bin { size: None }),
+    ]);
     let data = if let Value::Bin(data) = &de["data"] {
         data
     } else {

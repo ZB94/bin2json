@@ -10,9 +10,8 @@ use deku::bitvec::{BitSlice, Msb0};
 pub use deku::bitvec;
 use deku::ctx::Limit;
 
-pub use _struct::Struct;
 pub use array::{Array, Length};
-pub use ty::{BytesSize, Endian, Size, Type, Unit};
+pub use ty::{BytesSize, Endian, Field, Size, Type, Unit};
 pub use value::Value;
 
 use crate::error::ReadBinError;
@@ -21,7 +20,6 @@ pub mod error;
 pub mod ty;
 
 mod value;
-mod _struct;
 mod array;
 pub mod range;
 

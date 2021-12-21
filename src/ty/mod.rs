@@ -4,16 +4,19 @@ use deku::ctx::Limit;
 use deku::prelude::*;
 
 pub use bytes_size::BytesSize;
+pub use field::Field;
+use read_struct::read_struct;
 pub use unit::Unit;
 
-use crate::{Array, BitSlice, get_data_by_size, ReadBin, Struct};
-use crate::_struct::Field;
+use crate::{Array, BitSlice, get_data_by_size, ReadBin};
 use crate::error::ReadBinError;
 use crate::range::KeyRangeMap;
 use crate::Value;
 
 mod bytes_size;
 mod unit;
+mod read_struct;
+mod field;
 
 /// 数据类型
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -80,8 +83,11 @@ pub enum Type {
     },
     /// 结构体
     Struct {
-        #[serde(flatten)]
-        define: Struct,
+        /// 结构的字段列表
+        fields: Vec<Field>,
+        /// 手动指定结构的总字节大小
+        #[serde(default)]
+        size: Option<BytesSize>,
     },
     /// 数组
     Array {
@@ -162,7 +168,11 @@ impl Type {
     }
 
     pub fn new_struct(fields: Vec<Field>) -> Self {
-        Self::Struct { define: Struct::new(fields) }
+        Self::Struct { fields, size: None }
+    }
+
+    pub fn new_struct_with_size(fields: Vec<Field>, size: BytesSize) -> Self {
+        Self::Struct { fields, size: Some(size) }
     }
 
     pub fn new_array(ty: Type) -> Self {
@@ -250,8 +260,8 @@ impl ReadBin for Type {
                 };
                 (v, &data[d_len..])
             }
-            Self::Struct { define } => {
-                define.read(data)?
+            Self::Struct { fields, size } => {
+                read_struct(fields, size, data)?
             }
             Self::Array { define } => {
                 define.read(data)?
