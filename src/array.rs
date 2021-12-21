@@ -72,11 +72,7 @@ impl Array {
 impl ReadBin for Array {
     fn read<'a>(&self, data: &'a BitSlice<Msb0, u8>) -> Result<(Value, &'a BitSlice<Msb0, u8>), ReadBinError> {
         let src = data;
-        let mut data = if let Some(size) = &self.size {
-            get_data_by_size(data, size, None)?
-        } else {
-            data
-        };
+        let mut data = get_data_by_size(data, &self.size, None)?;
         let data_len = data.len();
 
         let (mut ret, len) = match &self.length {
@@ -94,7 +90,8 @@ impl ReadBin for Array {
                         break;
                     }
                 }
-                Err(_) => {
+                Err(e) => {
+                    dbg!(e);
                     if len == 0 {
                         break;
                     } else {

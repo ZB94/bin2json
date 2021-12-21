@@ -1,18 +1,10 @@
-use std::collections::HashMap;
-use std::fmt::Formatter;
-
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde::de::{Error, MapAccess, SeqAccess, Visitor};
-use serde::ser::SerializeMap;
+use crate::range::KeyRangeMap;
 
 /// 总字节大小
 ///
 /// **示例：**
 /// ```rust
 /// use bin2json::BytesSize;
-///
-/// let bs: BytesSize = serde_json::from_str(r#""all""#).unwrap();
-/// assert_eq!(bs, BytesSize::All);
 ///
 /// let bs: BytesSize = serde_json::from_str(r#"100"#).unwrap();
 /// assert_eq!(bs, BytesSize::Fixed(100));
@@ -28,19 +20,18 @@ use serde::ser::SerializeMap;
 ///     "by": "field name",
 ///     "map": {
 ///         "1": 2,
-///         "3": 4
+///         "3..": 4
 ///     }
 /// }"#).unwrap();
 /// assert_eq!(bs, BytesSize::Enum {
 ///     by: "field name".to_string(),
-///     map: [(1, 2), (3, 4)].into_iter().collect()
+///     map: bin2json::range_map!(1 => 2, 3.. => 4)
 /// });
 ///
 /// ```
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
 pub enum BytesSize {
-    /// 所有数据
-    All,
     /// 固定长度
     Fixed(usize),
     /// 以指定数据结尾
@@ -52,105 +43,55 @@ pub enum BytesSize {
         /// 字段名称
         by: String,
         /// 键为指定字段的值，值为大小
-        map: HashMap<i64, usize>,
+        map: KeyRangeMap<usize>,
     },
 }
 
 impl BytesSize {
-    pub fn by_enum<S: Into<String>>(target_field: S, map: HashMap<i64, usize>) -> Self {
+    pub fn by_enum<S: Into<String>, M: Into<KeyRangeMap<usize>>>(target_field: S, map: M) -> Self {
         Self::Enum {
             by: target_field.into(),
-            map,
+            map: map.into(),
         }
     }
 
-    pub fn by_field<S: Into<String>>(target: S) -> Self {
-        Self::By(target.into())
+    pub fn new<BS: Into<BytesSize>>(bs: BS) -> Self {
+        bs.into()
     }
 }
 
-impl Serialize for BytesSize {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
-        match self {
-            BytesSize::All => "all".serialize(serializer),
-            BytesSize::Fixed(size) => size.serialize(serializer),
-            BytesSize::EndWith(end) => end.serialize(serializer),
-            BytesSize::By(by) => by.serialize(serializer),
-            BytesSize::Enum { by, map } => {
-                let mut sm = serializer.serialize_map(Some(2))?;
-                sm.serialize_entry("by", by)?;
-                sm.serialize_entry("map", map)?;
-                sm.end()
-            }
-        }
+impl From<usize> for BytesSize {
+    fn from(size: usize) -> Self {
+        Self::Fixed(size)
     }
 }
 
-impl<'de> Deserialize<'de> for BytesSize {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
-        deserializer.deserialize_any(ByteSizeVisitor)
+impl From<String> for BytesSize {
+    fn from(by: String) -> Self {
+        Self::By(by)
     }
 }
 
-struct ByteSizeVisitor;
-
-impl<'de> Visitor<'de> for ByteSizeVisitor {
-    type Value = BytesSize;
-
-    fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
-        write!(formatter, "ByteSize的值必须为非负整数、字符串、单字节数组或者包含`by`和`map`两个键的对象")
+impl From<&str> for BytesSize {
+    fn from(by: &str) -> Self {
+        by.to_string().into()
     }
+}
 
-    fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E> where E: Error {
-        Ok(BytesSize::Fixed(v as usize))
+impl From<Vec<u8>> for BytesSize {
+    fn from(end: Vec<u8>) -> Self {
+        Self::EndWith(end)
     }
+}
 
-    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E> where E: Error {
-        if v == "all" {
-            Ok(BytesSize::All)
-        } else {
-            Ok(BytesSize::By(v.to_string()))
-        }
+impl From<&[u8]> for BytesSize {
+    fn from(end: &[u8]) -> Self {
+        end.to_vec().into()
     }
+}
 
-    fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E> where E: Error {
-        Ok(BytesSize::EndWith(v.to_vec()))
-    }
-
-    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error> where A: SeqAccess<'de> {
-        let mut bytes = vec![];
-        while let Some(b) = seq.next_element::<u8>()? {
-            bytes.push(b);
-        }
-        Ok(BytesSize::EndWith(bytes))
-    }
-
-    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error> where A: MapAccess<'de> {
-        let mut b = None;
-        let mut m = None;
-
-        while let Some(k) = map.next_key::<String>()? {
-            match k.as_str() {
-                "by" => {
-                    if b.is_none() {
-                        b = Some(map.next_value::<String>()?)
-                    } else {
-                        return Err(A::Error::duplicate_field("by"));
-                    }
-                }
-                "map" => {
-                    if m.is_none() {
-                        m = Some(map.next_value::<HashMap<i64, usize>>()?)
-                    } else {
-                        return Err(A::Error::duplicate_field("map"));
-                    }
-                }
-                _ => return Err(A::Error::unknown_field(&k, &["by", "enum"])),
-            }
-        };
-
-        let by = b.ok_or(A::Error::missing_field("by"))?;
-        let map = m.ok_or(A::Error::missing_field("map"))?;
-        Ok(BytesSize::Enum { by, map })
+impl<const L: usize> From<&[u8; L]> for BytesSize {
+    fn from(end: &[u8; L]) -> Self {
+        end.to_vec().into()
     }
 }

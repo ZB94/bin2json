@@ -23,6 +23,7 @@ pub mod ty;
 mod value;
 mod _struct;
 mod array;
+pub mod range;
 
 #[cfg(test)]
 mod tests;
@@ -41,13 +42,13 @@ pub trait ReadBin {
 
 pub(crate) fn get_data_by_size<'a>(
     data: &'a BitSlice<Msb0, u8>,
-    size: &BytesSize,
+    size: &Option<BytesSize>,
     by_map: Option<&HashMap<String, Value>>,
 ) -> Result<&'a BitSlice<Msb0, u8>, ReadBinError> {
     let len = match size {
-        BytesSize::All => return Ok(data),
-        BytesSize::Fixed(size) => *size,
-        BytesSize::EndWith(with) => {
+        None => return Ok(data),
+        Some(BytesSize::Fixed(size)) => *size,
+        Some(BytesSize::EndWith(with)) => {
             let with_end_error = |e: DekuError| -> ReadBinError {
                 if let DekuError::Incomplete(_) = &e {
                     ReadBinError::EndNotFound(with.clone())
@@ -65,16 +66,16 @@ pub(crate) fn get_data_by_size<'a>(
             }
             v.len()
         }
-        BytesSize::By(ref by) | BytesSize::Enum { ref by, .. } => {
+        Some(BytesSize::By(ref by) | BytesSize::Enum { ref by, .. }) => {
             if let Some(map) = by_map {
                 let by_value: serde_json::Value = map.get(by)
                     .cloned()
                     .ok_or(ReadBinError::ByKeyNotFound(by.clone()))?
                     .into();
 
-                if let BytesSize::Enum { map, .. } = size {
+                if let Some(BytesSize::Enum { map, .. }) = size {
                     by_value.as_i64()
-                        .and_then(|k| map.get(&k).copied())
+                        .and_then(|key| map.get(&key).copied())
                 } else {
                     by_value.as_u64()
                         .map(|s| s as usize)

@@ -2,22 +2,22 @@ use deku::bitvec::BitView;
 use deku::ctx::{Endian, Size};
 use serde_json::json;
 
-use crate::{Array, ReadBin, BytesSize, Length, Type, Value};
+use crate::{Array, BytesSize, Length, range_map, ReadBin, Type, Value};
 use crate::_struct::{Field, Struct};
 use crate::ty::Unit;
 
 #[test]
-pub fn test_struct_read() {
+pub fn test_read_struct() {
     let message = Struct {
         fields: vec![
             Field::new("head", Type::magic(b"##")),
-            Field::new("cmd", Type::Uint8(Default::default())),
-            Field::new("device_id", Type::String(BytesSize::Fixed(17))),
-            Field::new("version", Type::Uint8(Default::default())),
-            Field::new("crypto_type", Type::Uint8(Default::default())),
-            Field::new("data_len", Type::Uint16(Unit::big_endian())),
-            Field::new("data", Type::Bin(BytesSize::by_field("data_len"))),
-            Field::new("check", Type::Uint8(Default::default())),
+            Field::new("cmd", Type::uint8()),
+            Field::new("device_id", Type::string(BytesSize::Fixed(17))),
+            Field::new("version", Type::uint8()),
+            Field::new("crypto_type", Type::uint8()),
+            Field::new("data_len", Type::uint16(Endian::Big)),
+            Field::new("data", Type::bin(BytesSize::new("data_len"))),
+            Field::new("check", Type::uint8()),
         ],
         size: None,
     };
@@ -32,9 +32,9 @@ pub fn test_struct_read() {
 
     let body = Struct {
         fields: vec![
-            Field::new("datetime", Type::Bin(BytesSize::Fixed(6))),
-            Field::new("number", Type::Uint16(Unit::big_endian())),
-            Field::new("list", Type::Bin(BytesSize::All)),
+            Field::new("datetime", Type::bin(BytesSize::Fixed(6))),
+            Field::new("number", Type::uint16(Endian::Big)),
+            Field::new("list", Type::Bin { size: None }),
         ],
         size: None,
     };
@@ -51,15 +51,15 @@ pub fn test_struct_read() {
 }
 
 #[test]
-fn test_array_read() {
-    let mut array = Array::new(Type::Struct(Struct::new(vec![
-        Field::new("id", Type::Uint8(Default::default())),
-        Field::new("data", Type::String(BytesSize::by_enum("id", vec![
-            ('1' as i64, 1),
-            ('2' as i64, 2),
-            ('3' as i64, 3),
-        ].into_iter().collect()))),
-    ])));
+fn test_read_array() {
+    let mut array = Array::new(Type::new_struct(vec![
+        Field::new("id", Type::uint8()),
+        Field::new("data", Type::string(BytesSize::by_enum("id", range_map! {
+            '1' as i64 => 1,
+            '2' as i64 => 2,
+            '3' as i64 => 3
+        }))),
+    ]));
     let (a, d) = array.read_to_json(b"333322211".view_bits()).unwrap();
     assert_eq!(d.len(), 0);
     assert_eq!(a, serde_json::json!([
@@ -78,22 +78,18 @@ fn test_array_read() {
 
 #[test]
 fn test_read_enum() {
-    let _enum = Struct {
-        fields: vec![
-            Field::new("key", Type::Uint8(Default::default())),
-            Field::new("value", Type::Enum {
-                by: "key".to_string(),
-                map: [
-                    (1, Type::String(BytesSize::Fixed(5))),
-                    (2, Type::Bin(BytesSize::Fixed(5))),
-                    (3, Type::Uint32(Unit::big_endian())),
-                ].into_iter().collect(),
-                size: None,
-            }),
-        ],
-        size: None,
-    };
-    let array = Array::new(Type::Struct(_enum));
+    let _enum = Type::new_struct(vec![
+        Field::new("key", Type::uint8()),
+        Field::new("value", Type::new_enum(
+            "key",
+            range_map!(
+                1 => Type::string(BytesSize::Fixed(5)),
+                2 => Type::bin(BytesSize::Fixed(5)),
+                3 => Type::uint32(Endian::Big)
+            ),
+        )),
+    ]);
+    let array = Array::new(_enum);
 
     let data = b"\x01hello\x02world\x03\x00\x00\x00\xff";
     assert_eq!(array.read_to_json(data.view_bits()).unwrap(), (json!([
@@ -109,7 +105,7 @@ fn test_read_enum() {
             "key": 3,
             "value": u32::from_be_bytes([0, 0,0, 0xff])
         }
-    ]), [0u8; 0].as_slice().view_bits()));
+    ]), [0u8; 0].view_bits()));
 }
 
 
@@ -118,74 +114,72 @@ fn test_read() {
     let message = Type::new_struct(vec![
         Field::new("head", Type::magic(b"##")),
         Field::new("command", Type::uint8()),
-        Field::new("device_id", Type::String(BytesSize::Fixed(17))),
+        Field::new("device_id", Type::string(BytesSize::Fixed(17))),
         Field::new("version", Type::uint8()),
         Field::new("crypto_type", Type::uint8()),
-        Field::new("data_len", Type::Uint16(Unit::big_endian())),
+        Field::new("data_len", Type::uint16(Endian::Big)),
         Field::new("data", Type::Enum {
             by: "command".to_string(),
-            map: [
-                (1, Type::new_struct(vec![
-                    Field::new("datetime", Type::Bin(BytesSize::Fixed(6))),
-                    Field::new("number", Type::Uint16(Unit::big_endian())),
-                    Field::new("sim_id", Type::String(BytesSize::Fixed(20))),
-                ])),
-                (2, Type::new_struct(vec![
-                    Field::new("datetime", Type::Bin(BytesSize::Fixed(6))),
-                    Field::new("number", Type::Uint16(Unit::big_endian())),
+            map: range_map! {
+                1 => Type::new_struct(vec![
+                    Field::new("datetime", Type::bin(BytesSize::Fixed(6))),
+                    Field::new("number", Type::uint16(Endian::Big)),
+                    Field::new("sim_id", Type::string(BytesSize::Fixed(20))),
+                ]),
+                2 => Type::new_struct(vec![
+                    Field::new("datetime", Type::bin(BytesSize::Fixed(6))),
+                    Field::new("number", Type::uint16(Endian::Big)),
                     Field::new("infos", Type::new_array(Type::new_struct(vec![
                         Field::new("info_type", Type::uint8()),
-                        Field::new("info", Type::new_enum("info_type", [
-                            (1, Type::new_struct(vec![
+                        Field::new("info", Type::new_enum("info_type", range_map! {
+                            1 => Type::new_struct(vec![
                                 Field::new("protocol", Type::uint8()),
                                 Field::new("mil_status", Type::uint8()),
-                                Field::new("support_status", Type::Uint16(Unit::big_endian())),
-                                Field::new("ready_status", Type::Uint16(Unit::big_endian())),
-                                Field::new("vin", Type::String(BytesSize::Fixed(17))),
-                                Field::new("scin", Type::String(BytesSize::Fixed(18))),
-                                Field::new("cvn", Type::String(BytesSize::Fixed(18))),
-                                Field::new("iupr", Type::String(BytesSize::Fixed(36))),
+                                Field::new("support_status", Type::uint16(Endian::Big)),
+                                Field::new("ready_status", Type::uint16(Endian::Big)),
+                                Field::new("vin", Type::string(BytesSize::Fixed(17))),
+                                Field::new("scin", Type::string(BytesSize::Fixed(18))),
+                                Field::new("cvn", Type::string(BytesSize::Fixed(18))),
+                                Field::new("iupr", Type::string(BytesSize::Fixed(36))),
                                 Field::new("code_len", Type::uint8()),
-                                Field::new("code_list", Type::Array(Array {
-                                    ty: Box::new(Type::Uint32(Unit::big_endian())),
-                                    length: Some(Length::by_field("code_len")),
-                                    size: None,
-                                })),
-                            ])),
-                            (2, Type::new_struct(vec![
-                                Field::new("speed", Type::Uint16(Unit::big_endian())),
+                                Field::new("code_list", Type::Array {
+                                    define: Array::new_with_length_by(Type::uint32(Endian::Big), "code_len")
+                                })
+                            ]),
+                            2 => Type::new_struct(vec![
+                                Field::new("speed", Type::uint16(Endian::Big)),
                                 Field::new("atmospheric_pressure", Type::uint8()),
                                 Field::new("torque", Type::uint8()),
                                 Field::new("friction_torque", Type::uint8()),
-                                Field::new("engine_speed", Type::Uint16(Unit::big_endian())),
-                                Field::new("engine_fuel_flow", Type::Uint16(Unit::big_endian())),
-                                Field::new("scr_nox_up", Type::Uint16(Unit::big_endian())),
-                                Field::new("scr_nox_down", Type::Uint16(Unit::big_endian())),
+                                Field::new("engine_speed", Type::uint16(Endian::Big)),
+                                Field::new("engine_fuel_flow", Type::uint16(Endian::Big)),
+                                Field::new("scr_nox_up", Type::uint16(Endian::Big)),
+                                Field::new("scr_nox_down", Type::uint16(Endian::Big)),
                                 Field::new("reactant", Type::uint8()),
-                                Field::new("air_intake", Type::Uint16(Unit::big_endian())),
-                                Field::new("scr_temp_in", Type::Uint16(Unit::big_endian())),
-                                Field::new("scr_temp_out", Type::Uint16(Unit::big_endian())),
-                                Field::new("dpf_pressure", Type::Uint16(Unit::big_endian())),
+                                Field::new("air_intake", Type::uint16(Endian::Big)),
+                                Field::new("scr_temp_in", Type::uint16(Endian::Big)),
+                                Field::new("scr_temp_out", Type::uint16(Endian::Big)),
+                                Field::new("dpf_pressure", Type::uint16(Endian::Big)),
                                 Field::new("engine_coolant_temp", Type::uint8()),
                                 Field::new("oil_volume", Type::uint8()),
                                 Field::new("pos_invalid", Type::BOOL_BIT),
                                 Field::new("pos_south", Type::BOOL_BIT),
                                 Field::new("pos_east", Type::BOOL_BIT),
-                                Field::new("skip", Type::Uint8(Unit::new(Endian::Big, Size::Bits(5)))),
-                                Field::new("longitude", Type::Uint32(Unit::big_endian())),
-                                Field::new("latitude", Type::Uint32(Unit::big_endian())),
-                                Field::new("mileage", Type::Uint32(Unit::big_endian())),
-                            ])),
-                            (130, Type::new_struct(vec![
-                                Field::new("absorption_coefficient", Type::Uint16(Unit::big_endian())),
-                                Field::new("opaque", Type::Uint16(Unit::big_endian())),
-                                Field::new("pm", Type::Uint16(Unit::big_endian())),
-                            ]))
-                        ].into_iter().collect())),
+                                Field::new("skip", Type::Uint8{ unit: Unit::new(Endian::Big, Size::Bits(5))}),
+                                Field::new("longitude", Type::uint32(Endian::Big)),
+                                Field::new("latitude", Type::uint32(Endian::Big)),
+                                Field::new("mileage", Type::uint32(Endian::Big)),
+                            ]),
+                            130 => Type::new_struct(vec![
+                                Field::new("absorption_coefficient", Type::uint16(Endian::Big)),
+                                Field::new("opaque", Type::uint16(Endian::Big)),
+                                Field::new("pm", Type::uint16(Endian::Big)),
+                            ])
+                        })),
                     ]))),
-                ]))
-            ].into_iter().collect(),
-            size: Some(BytesSize::by_field("data_len")),
+                ])
+            },
+            size: Some(BytesSize::new("data_len")),
         }),
         Field::new("check", Type::uint8()),
     ]);

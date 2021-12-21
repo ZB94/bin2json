@@ -75,6 +75,15 @@ impl Default for Unit {
     }
 }
 
+impl From<Endian> for Unit {
+    fn from(endian: Endian) -> Self {
+        match endian {
+            Endian::Big => Unit::big_endian(),
+            Endian::Little => Unit::little_endian(),
+        }
+    }
+}
+
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", content = "value")]

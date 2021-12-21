@@ -54,18 +54,14 @@ impl Field {
 impl ReadBin for Struct {
     fn read<'a>(&self, data: &'a BitSlice<Msb0, u8>) -> Result<(Value, &'a BitSlice<Msb0, u8>), ReadBinError> {
         let src = data;
-        let mut data = if let Some(size) = &self.size {
-            get_data_by_size(&data, size, None)?
-        } else {
-            data
-        };
+        let mut data = get_data_by_size(&data, &self.size, None)?;
         let data_len = data.len();
         let mut ret: HashMap<String, Value> = HashMap::with_capacity(self.fields.len());
 
         for Field { name, ty } in &self.fields {
             let mut ty = ty.clone();
 
-            if let Type::Array(Array { length: Some(length), .. }) = &mut ty {
+            if let Type::Array { define: Array { length: Some(length), .. } } = &mut ty {
                 if let Length::By(by) = length {
                     let by_value: serde_json::Value = ret.get(by)
                         .cloned()
@@ -79,15 +75,16 @@ impl ReadBin for Struct {
                 }
             }
 
-            let (d, fixed_size) = if let Type::Bin(size)
-            | Type::String(size)
-            | Type::Array(Array { size: Some(size @ BytesSize::By(_) | size @ BytesSize::Enum { .. }), .. })
-            | Type::Struct(Struct { size: Some(size @ BytesSize::By(_) | size @ BytesSize::Enum { .. }), .. })
-            | Type::Enum { size: Some(size), .. }
+            let (d, fixed_size) = if let Type::Bin { size }
+            | Type::String { size }
+            | Type::Array { define: Array { size, .. } }
+            | Type::Struct { define: Struct { size, .. } }
+            | Type::Enum { size, .. }
             = &mut ty {
+                let fs = size.is_some();
                 let d = get_data_by_size(data, size, Some(&ret))?;
-                *size = BytesSize::Fixed(d.len() / 8);
-                (d, true)
+                *size = Some(BytesSize::Fixed(d.len() / 8));
+                (d, fs)
             } else {
                 (data, false)
             };
