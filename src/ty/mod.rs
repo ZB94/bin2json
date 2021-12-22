@@ -9,6 +9,7 @@ pub use field::Field;
 use read_array::read_array;
 use read_struct::read_struct;
 pub use unit::Unit;
+pub use endian::Endian;
 
 use crate::{BitSlice, get_data_by_size, ReadBin, WriteBin};
 use crate::bitvec::BitVec;
@@ -22,6 +23,7 @@ mod read_struct;
 mod field;
 mod read_array;
 mod array_length;
+mod endian;
 
 /// 数据类型
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -657,30 +659,6 @@ impl WriteBin for Type {
         };
 
         Ok(output)
-    }
-}
-
-/// 字节顺序
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub enum Endian {
-    /// 大段
-    Big,
-    /// 小端
-    Little,
-}
-
-impl Into<deku::ctx::Endian> for Endian {
-    fn into(self) -> deku::ctx::Endian {
-        match self {
-            Self::Little => deku::ctx::Endian::Little,
-            Self::Big => deku::ctx::Endian::Big,
-        }
-    }
-}
-
-impl Default for Endian {
-    fn default() -> Self {
-        Self::Big
     }
 }
 
