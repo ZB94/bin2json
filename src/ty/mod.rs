@@ -1,4 +1,4 @@
-use deku::bitvec::Msb0;
+use deku::bitvec::{BitView, Msb0};
 use deku::ctx::Limit;
 pub use deku::ctx::Size;
 use deku::prelude::*;
@@ -10,8 +10,9 @@ use read_array::read_array;
 use read_struct::read_struct;
 pub use unit::Unit;
 
-use crate::{BitSlice, get_data_by_size, ReadBin};
-use crate::error::ReadBinError;
+use crate::{BitSlice, get_data_by_size, ReadBin, WriteBin};
+use crate::bitvec::BitVec;
+use crate::error::{ReadBinError, WriteBinError};
 use crate::range::KeyRangeMap;
 use crate::Value;
 
@@ -408,6 +409,28 @@ impl Type {
             size: None,
         }
     }
+
+    pub const fn type_name(&self) -> &'static str {
+        match self {
+            Type::Magic { .. } => "Magic",
+            Type::Boolean { .. } => "Boolean",
+            Type::Int8 { .. } => "Int8",
+            Type::Int16 { .. } => "Int16",
+            Type::Int32 { .. } => "Int32",
+            Type::Int64 { .. } => "Int64",
+            Type::Uint8 { .. } => "Uint8",
+            Type::Uint16 { .. } => "Uint16",
+            Type::Uint32 { .. } => "Uint32",
+            Type::Uint64 { .. } => "Uint64",
+            Type::Float32 { .. } => "Float32",
+            Type::Float64 { .. } => "Float64",
+            Type::String { .. } => "String",
+            Type::Bin { .. } => "Bin",
+            Type::Struct { .. } => "Struct",
+            Type::Array { .. } => "Array",
+            Type::Enum { .. } => "Enum",
+        }
+    }
 }
 
 macro_rules! parse_numeric_field {
@@ -494,6 +517,149 @@ impl ReadBin for Type {
     }
 }
 
+
+impl WriteBin for Type {
+    fn write_json(&self, value: &serde_json::Value) -> Result<BitVec<Msb0, u8>, WriteBinError> {
+        let mut output = BitVec::new();
+
+        macro_rules! v {
+            ($conv: expr) => {{
+                $conv.ok_or(WriteBinError::TypeError(self.type_name()))?
+            }};
+        }
+        macro_rules! write_num {
+            ($conv: expr, $input_ty: ty, $need_ty: ty, $unit: ident, $default_bytes: literal) => {
+                let v = v!($conv);
+                if v >= <$need_ty>::MIN as $input_ty && v <= <$need_ty>::MAX as $input_ty {
+                    let ctx: (deku::ctx::Endian, Size) = ($unit.endian.into(), $unit.size.unwrap_or(Size::Bytes($default_bytes)));
+                    (v as $need_ty).write(&mut output, ctx)?;
+                } else {
+                    return Err(WriteBinError::ValueOverflowOf(self.type_name()));
+                }
+            };
+        }
+
+        match self {
+            | Type::String { size: Some(BytesSize::By(_) | BytesSize::Enum { .. }) }
+            | Type::Bin { size: Some(BytesSize::By(_) | BytesSize::Enum { .. }) }
+            | Type::Struct { size: Some(BytesSize::By(_) | BytesSize::Enum { .. }), .. }
+            | Type::Array { size: Some(BytesSize::By(_) | BytesSize::Enum { .. }), .. }
+            | Type::Array { length: Some(Length::By(_)), .. }
+            | Type::Enum { .. }
+            => return Err(WriteBinError::ByError),
+
+            Type::Magic { magic } => {
+                let m = get_bin(v!(value.as_array()), self.type_name())?;
+                if &m == magic {
+                    m.write(&mut output, ())?;
+                } else {
+                    return Err(WriteBinError::MagicError { input: m, need: magic.clone() });
+                }
+            }
+            Type::Boolean { bit } => {
+                let b = v!(value.as_bool());
+                let size = if *bit { Size::Bits(1) } else { Size::Bytes(1) };
+                b.write(&mut output, size)?;
+            }
+            Type::Int8 { unit } => {
+                write_num!(value.as_i64(), i64, i8, unit, 1);
+            }
+            Type::Int16 { unit } => {
+                write_num!(value.as_i64(), i64, i16, unit, 2);
+            }
+            Type::Int32 { unit } => {
+                write_num!(value.as_i64(), i64, i32, unit, 4);
+            }
+            Type::Int64 { unit } => {
+                write_num!(value.as_i64(), i64, i64, unit, 8);
+            }
+            Type::Uint8 { unit } => {
+                write_num!(value.as_u64(), u64, u8, unit, 1);
+            }
+            Type::Uint16 { unit } => {
+                write_num!(value.as_u64(), u64, u16, unit, 2);
+            }
+            Type::Uint32 { unit } => {
+                write_num!(value.as_u64(), u64, u32, unit, 4);
+            }
+            Type::Uint64 { unit } => {
+                write_num!(value.as_u64(), u64, u64, unit, 8);
+            }
+            Type::Float32 { endian } => {
+                let v = v!(value.as_f64());
+                let f = v as f32;
+                if f.is_infinite() && !v.is_infinite() {
+                    return Err(WriteBinError::ValueOverflowOf(self.type_name()));
+                } else {
+                    let endian: deku::ctx::Endian = (*endian).into();
+                    f.write(&mut output, endian)?;
+                }
+            }
+            Type::Float64 { endian } => {
+                let endian: deku::ctx::Endian = (*endian).into();
+                v!(value.as_f64()).write(&mut output, endian)?;
+            }
+            Type::Bin { size } | Type::String { size } => {
+                #[allow(unused_assignments)] let mut c = None;
+
+                let b = if let Type::String { .. } = self {
+                    v!(value.as_str()).as_bytes()
+                } else {
+                    c = Some(get_bin(v!(value.as_array()), self.type_name())?);
+                    c.as_ref()
+                        .map(|v| v.as_slice())
+                        .unwrap()
+                };
+
+                let e = match size {
+                    Some(BytesSize::Fixed(size)) => *size == b.len(),
+                    Some(BytesSize::EndWith(end)) => b.ends_with(end),
+                    _ => true,
+                };
+                if e {
+                    b.write(&mut output, ())?;
+                } else {
+                    return Err(WriteBinError::BytesSizeError);
+                }
+            }
+
+            Type::Array { element_type, length, size } => {
+                let mut out = BitVec::new();
+                let mut len = 0;
+                v!(value.as_array())
+                    .iter()
+                    .map(|v| -> Result<(), WriteBinError> {
+                        out.append(&mut element_type.write_json(v)?);
+                        len += 1;
+                        Ok(())
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                if let Some(Length::Fixed(l)) = length {
+                    if l != &len {
+                        return Err(WriteBinError::LengthError { input: len, need: *l });
+                    }
+                }
+
+                if let Some(BytesSize::Fixed(size)) = size {
+                    if *size * 8 != out.len() {
+                        return Err(WriteBinError::BytesSizeError);
+                    }
+                } else if let Some(BytesSize::EndWith(end)) = size {
+                    if !out.ends_with(end.view_bits::<Msb0>()) {
+                        return Err(WriteBinError::BytesSizeError);
+                    }
+                }
+
+                output = out;
+            }
+            Type::Struct { .. } => {}
+        };
+
+        Ok(output)
+    }
+}
+
 /// 字节顺序
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Endian {
@@ -516,4 +682,17 @@ impl Default for Endian {
     fn default() -> Self {
         Self::Big
     }
+}
+
+fn get_bin(list: &Vec<serde_json::Value>, type_name: &'static str) -> Result<Vec<u8>, WriteBinError> {
+    list.iter()
+        .map(|v| {
+            let v = v.as_u64().ok_or(WriteBinError::TypeError(type_name))?;
+            if v <= u8::MAX as u64 {
+                Ok(v as u8)
+            } else {
+                Err(WriteBinError::TypeError(type_name))
+            }
+        })
+        .collect()
 }

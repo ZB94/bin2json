@@ -1,4 +1,4 @@
-#![doc = include_str!("../README.md")]
+#![doc = include_str ! ("../README.md")]
 
 #[macro_use]
 extern crate serde;
@@ -8,7 +8,7 @@ extern crate thiserror;
 use std::collections::HashMap;
 
 use deku::{DekuError, DekuRead};
-use deku::bitvec::{BitSlice, Msb0};
+use deku::bitvec::{BitSlice, BitVec, Msb0};
 pub use deku::bitvec;
 use deku::ctx::Limit;
 
@@ -16,6 +16,7 @@ pub use error::ReadBinError;
 pub use ty::Type;
 pub use value::Value;
 
+use crate::error::WriteBinError;
 use crate::ty::BytesSize;
 
 pub mod error;
@@ -36,6 +37,15 @@ pub trait ReadBin {
     fn read_to_json<'a>(&self, data: &'a BitSlice<Msb0, u8>) -> Result<(serde_json::Value, &'a BitSlice<Msb0, u8>), ReadBinError> {
         self.read(data)
             .map(|(v, d)| (v.into(), d))
+    }
+}
+
+pub trait WriteBin {
+    fn write_json(&self, value: &serde_json::Value) -> Result<BitVec<Msb0, u8>, WriteBinError>;
+
+    fn write(&self, value: &Value) -> Result<BitVec<Msb0, u8>, WriteBinError> {
+        let value: serde_json::Value = value.clone().into();
+        self.write_json(&value)
     }
 }
 

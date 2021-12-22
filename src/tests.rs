@@ -2,11 +2,65 @@ use deku::bitvec::BitView;
 use deku::ctx::Size;
 use serde_json::json;
 
-use crate::{range_map, ReadBin, Type, Value};
+use crate::{Msb0, range_map, ReadBin, Type, Value, WriteBin};
 use crate::ty::{BytesSize, Endian, Field, Length, Unit};
 
 #[test]
-pub fn test_read_struct() {
+fn test_write_array() {
+    let str_array = Type::Array {
+        element_type: Box::new(Type::string(BytesSize::Fixed(5))),
+        length: Some(Length::Fixed(2)),
+        size: Some(BytesSize::new(10)),
+    };
+    let out = str_array.write_json(&json!(["hello", "world"])).unwrap();
+    assert_eq!("helloworld".as_bytes().view_bits::<Msb0>(), out);
+    assert!(str_array.write_json(&json!(["hello", "world", ".."])).is_err());
+    assert!(str_array.write_json(&json!(["hello", "world1"])).is_err())
+}
+
+#[test]
+fn test_write_str_or_bin() {
+    let bin = Type::bin(BytesSize::Fixed(5));
+    let out = bin.write_json(&json!([1, 2, 3, 4, 5])).unwrap();
+    assert_eq!([1u8, 2, 3, 4, 5].view_bits::<Msb0>(), out);
+
+    let s = Type::string(BytesSize::Fixed(10));
+    let out = s.write_json(&json!("HelloWorld")).unwrap();
+    assert_eq!("HelloWorld".as_bytes().view_bits::<Msb0>(), out);
+}
+
+#[test]
+fn test_write_num() {
+    let t_i8 = Type::int8();
+    let out = t_i8.write_json(&json!(100)).unwrap();
+    assert_eq!([100u8].view_bits::<Msb0>(), out);
+    assert!(t_i8.write_json(&json!(256)).is_err());
+    assert!(t_i8.write_json(&json!(-129)).is_err());
+
+    let t_u64 = Type::uint64(Endian::Big);
+    let out = t_u64.write_json(&json!(123456)).unwrap();
+    assert_eq!(123456u64.to_be_bytes().view_bits::<Msb0>(), out);
+    assert!(t_u64.write_json(&json!(-1)).is_err());
+    assert!(t_u64.write_json(&json!(5.0)).is_err());
+
+    let t_f32 = Type::float32(Endian::Big);
+    let out = t_f32.write_json(&json!(100.0)).unwrap();
+    assert_eq!(100.0f32.to_be_bytes().view_bits::<Msb0>(), out);
+    assert!(t_f32.write_json(&json!(f32::MAX as f64 * 2.0)).is_err());
+}
+
+#[test]
+fn test_write_magic() {
+    let magic = Type::magic(&[1, 2, 3]);
+    let out = magic.write_json(&json!([1, 2, 3])).unwrap();
+    assert_eq!([1u8, 2, 3].view_bits::<Msb0>(), out);
+
+    assert!(magic.write_json(&json!([1, 2, 3, 4])).is_err());
+    assert!(magic.write_json(&json!("test")).is_err());
+}
+
+#[test]
+fn test_read_struct() {
     let message = Type::new_struct(
         vec![
             Field::new("head", Type::magic(b"##")),
@@ -105,7 +159,6 @@ fn test_read_enum() {
         }
     ]), [0u8; 0].view_bits()));
 }
-
 
 #[test]
 fn test_read() {
