@@ -161,7 +161,7 @@ fn test_read_enum() {
 }
 
 #[test]
-fn test_read() {
+fn test_read_write() {
     let message = Type::new_struct(vec![
         Field::new("head", Type::magic(b"##")),
         Field::new("command", Type::uint8()),
@@ -246,7 +246,8 @@ fn test_read() {
         49, 50, 51, 52, 53, 54, 55, 57, 56, 48,
         30
     ];
-    assert_eq!(message.read_to_json(login.view_bits()).unwrap(), (json!({
+    let (msg, _) = message.read_to_json(login.view_bits()).unwrap();
+    assert_eq!(msg, json!({
         "head": b"##",
         "command": 1,
         "device_id": "12345678901234501",
@@ -259,7 +260,21 @@ fn test_read() {
             "sim_id": "12345678901234567980"
         },
         "check": 30
-    }), login[login.len()..].view_bits()));
+    }));
+    assert_eq!(message.write_json(&msg).unwrap().as_raw_slice(), login);
+    assert_eq!(message.write_json(&json!({
+        "head": b"##",
+        "command": 1,
+        "device_id": "12345678901234501",
+        "version": 1,
+        "crypto_type": 1,
+        "data": {
+            "datetime": [21, 12, 17, 14, 54, 1],
+            "number": 3,
+            "sim_id": "12345678901234567980"
+        },
+        "check": 30
+    })).unwrap().as_raw_slice(), login);
 
     let info = [
         35, 35,
@@ -311,7 +326,8 @@ fn test_read() {
         98
     ];
 
-    assert_eq!(message.read_to_json(info.view_bits()).unwrap(), (json!({
+    let (msg, _) = message.read_to_json(info.view_bits()).unwrap();
+    assert_eq!(msg, json!({
         "head": b"##",
         "command": 2,
         "device_id": "12345678901234501",
@@ -375,5 +391,69 @@ fn test_read() {
             ]
         },
         "check": 98
-    }), info[info.len()..].view_bits()));
+    }));
+    assert_eq!(message.write_json(&msg).unwrap().as_raw_slice(), info);
+    assert_eq!(message.write_json(& json!({
+        "head": b"##",
+        "command": 2,
+        "device_id": "12345678901234501",
+        "version": 1,
+        "crypto_type": 1,
+        "data": {
+            "datetime": [21, 12, 17, 15, 2, 35],
+            "number": 4,
+            "infos": [
+                {
+                    "info_type": 2,
+                    "info": {
+                        "speed": u16::from_be_bytes([1, 0]),
+                        "atmospheric_pressure": 4,
+                        "torque": 128,
+                        "friction_torque": 129,
+                        "engine_speed": 40,
+                        "engine_fuel_flow": 120,
+                        "scr_nox_up": u16::from_be_bytes([16, 44]),
+                        "scr_nox_down": u16::from_be_bytes([16, 64]),
+                        "reactant": 22,
+                        "air_intake": 200,
+                        "scr_temp_in": u16::from_be_bytes([35, 128]),
+                        "scr_temp_out": u16::from_be_bytes([35, 160]),
+                        "dpf_pressure": 130,
+                        "engine_coolant_temp": 54,
+                        "oil_volume": 37,
+                        "pos_invalid": false,
+                        "pos_south": false,
+                        "pos_east": true,
+                        "skip": 0,
+                        "longitude": u32::from_be_bytes([0, 25, 240, 160]),
+                        "latitude": u32::from_be_bytes([0, 27, 119, 64]),
+                        "mileage": u32::from_be_bytes([0, 0, 0, 190]),
+                    }
+                },
+                {
+                    "info_type": 130,
+                    "info": {
+                        "absorption_coefficient": u16::from_be_bytes([7, 208]),
+                        "opaque": 210,
+                        "pm": 220,
+                    }
+                },
+                {
+                    "info_type": 1,
+                    "info": {
+                        "protocol": 1,
+                        "mil_status": 1,
+                        "support_status": u16::from_be_bytes([23, 0]),
+                        "ready_status": u16::from_be_bytes([24, 0]),
+                        "vin": "12345678901234501",
+                        "scin": "234567890123456789",
+                        "cvn": "012345678901234567",
+                        "iupr": "890123456789012345678901234567890123",
+                        "code_list": [25, 26, 27]
+                    }
+                }
+            ]
+        },
+        "check": 98
+    })).unwrap().as_raw_slice(), info);
 }

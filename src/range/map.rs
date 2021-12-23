@@ -86,6 +86,51 @@ impl<V: Clone> KeyRangeMap<V> {
             })
             .or(self.default.as_ref().map(|d| d.as_ref()))
     }
+
+    pub fn iter(&self) -> impl Iterator<Item=(KeyRange, &V)> {
+        self.value_map
+            .iter()
+            .map(|(k, v)| (KeyRange::Value(*k), v))
+            .chain(self.range_map
+                .iter()
+                .map(|(k, v)| (k.clone(), v)))
+            .chain(self.default
+                .as_ref()
+                .map(|v| vec![(KeyRange::Full, v.as_ref())])
+                .unwrap_or_default())
+    }
+}
+
+impl<V: PartialEq + Clone> KeyRangeMap<V> {
+    pub fn find_key(&self, value: &V) -> Option<KeyRange> {
+        self.value_map
+            .iter()
+            .find_map(|(k, v)| {
+                if v == value {
+                    Some(KeyRange::Value(*k))
+                } else {
+                    None
+                }
+            })
+            .or_else(|| {
+                self.range_map
+                    .iter()
+                    .find_map(|(k, v)| {
+                        if v == value {
+                            Some(k.clone())
+                        } else {
+                            None
+                        }
+                    })
+            })
+            .or_else(|| {
+                if self.default.is_some() {
+                    Some(KeyRange::Full)
+                } else {
+                    None
+                }
+            })
+    }
 }
 
 impl<V: PartialEq + Clone> PartialEq for KeyRangeMap<V> {

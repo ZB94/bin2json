@@ -5,16 +5,17 @@ use deku::prelude::*;
 
 pub use array_length::Length;
 pub use bytes_size::BytesSize;
+pub use endian::Endian;
 pub use field::Field;
 use read_array::read_array;
 use read_struct::read_struct;
 pub use unit::Unit;
-pub use endian::Endian;
 
 use crate::{BitSlice, get_data_by_size, ReadBin, WriteBin};
 use crate::bitvec::BitVec;
 use crate::error::{ReadBinError, WriteBinError};
 use crate::range::KeyRangeMap;
+use crate::ty::write_struct::write_struct;
 use crate::Value;
 
 mod bytes_size;
@@ -24,6 +25,7 @@ mod field;
 mod read_array;
 mod array_length;
 mod endian;
+mod write_struct;
 
 /// 数据类型
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -643,19 +645,15 @@ impl WriteBin for Type {
                     }
                 }
 
-                if let Some(BytesSize::Fixed(size)) = size {
-                    if *size * 8 != out.len() {
-                        return Err(WriteBinError::BytesSizeError);
-                    }
-                } else if let Some(BytesSize::EndWith(end)) = size {
-                    if !out.ends_with(end.view_bits::<Msb0>()) {
-                        return Err(WriteBinError::BytesSizeError);
-                    }
-                }
-
+                check_size(size, &out)?;
                 output = out;
             }
-            Type::Struct { .. } => {}
+            Type::Struct { fields, size } => {
+                let obj = v!(value.as_object());
+                let out = write_struct(fields, obj)?;
+                check_size(size, &out)?;
+                output = out;
+            }
         };
 
         Ok(output)
@@ -673,4 +671,18 @@ fn get_bin(list: &Vec<serde_json::Value>, type_name: &'static str) -> Result<Vec
             }
         })
         .collect()
+}
+
+
+fn check_size(size: &Option<BytesSize>, out: &BitVec<Msb0, u8>) -> Result<(), WriteBinError> {
+    if let Some(BytesSize::Fixed(size)) = size {
+        if *size * 8 != out.len() {
+            return Err(WriteBinError::BytesSizeError);
+        }
+    } else if let Some(BytesSize::EndWith(end)) = size {
+        if !out.ends_with(end.view_bits::<Msb0>()) {
+            return Err(WriteBinError::BytesSizeError);
+        }
+    }
+    Ok(())
 }
