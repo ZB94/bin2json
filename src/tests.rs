@@ -2,7 +2,7 @@ use deku::bitvec::BitView;
 use deku::ctx::Size;
 use serde_json::json;
 
-use crate::{Msb0, range_map, ReadBin, Type, Value, WriteBin};
+use crate::{Msb0, range_map, ReadBin, Type, WriteBin};
 use crate::ty::{BytesSize, Endian, Field, Length, Unit};
 
 #[test]
@@ -12,90 +12,51 @@ fn test_write_array() {
         length: Some(Length::Fixed(2)),
         size: Some(BytesSize::new(10)),
     };
-    let out = str_array.write_json(&json!(["hello", "world"])).unwrap();
+    let out = str_array.write(&json!(["hello", "world"])).unwrap();
     assert_eq!("helloworld".as_bytes().view_bits::<Msb0>(), out);
-    assert!(str_array.write_json(&json!(["hello", "world", ".."])).is_err());
-    assert!(str_array.write_json(&json!(["hello", "world1"])).is_err())
+    assert!(str_array.write(&json!(["hello", "world", ".."])).is_err());
+    assert!(str_array.write(&json!(["hello", "world1"])).is_err())
 }
 
 #[test]
 fn test_write_str_or_bin() {
     let bin = Type::bin(BytesSize::Fixed(5));
-    let out = bin.write_json(&json!([1, 2, 3, 4, 5])).unwrap();
+    let out = bin.write(&json!([1, 2, 3, 4, 5])).unwrap();
     assert_eq!([1u8, 2, 3, 4, 5].view_bits::<Msb0>(), out);
 
     let s = Type::string(BytesSize::Fixed(10));
-    let out = s.write_json(&json!("HelloWorld")).unwrap();
+    let out = s.write(&json!("HelloWorld")).unwrap();
     assert_eq!("HelloWorld".as_bytes().view_bits::<Msb0>(), out);
 }
 
 #[test]
 fn test_write_num() {
     let t_i8 = Type::int8();
-    let out = t_i8.write_json(&json!(100)).unwrap();
+    let out = t_i8.write(&json!(100)).unwrap();
     assert_eq!([100u8].view_bits::<Msb0>(), out);
-    assert!(t_i8.write_json(&json!(256)).is_err());
-    assert!(t_i8.write_json(&json!(-129)).is_err());
+    assert!(t_i8.write(&json!(256)).is_err());
+    assert!(t_i8.write(&json!(-129)).is_err());
 
     let t_u64 = Type::uint64(Endian::Big);
-    let out = t_u64.write_json(&json!(123456)).unwrap();
+    let out = t_u64.write(&json!(123456)).unwrap();
     assert_eq!(123456u64.to_be_bytes().view_bits::<Msb0>(), out);
-    assert!(t_u64.write_json(&json!(-1)).is_err());
-    assert!(t_u64.write_json(&json!(5.0)).is_err());
+    assert!(t_u64.write(&json!(-1)).is_err());
+    assert!(t_u64.write(&json!(5.0)).is_err());
 
     let t_f32 = Type::float32(Endian::Big);
-    let out = t_f32.write_json(&json!(100.0)).unwrap();
+    let out = t_f32.write(&json!(100.0)).unwrap();
     assert_eq!(100.0f32.to_be_bytes().view_bits::<Msb0>(), out);
-    assert!(t_f32.write_json(&json!(f32::MAX as f64 * 2.0)).is_err());
+    assert!(t_f32.write(&json!(f32::MAX as f64 * 2.0)).is_err());
 }
 
 #[test]
 fn test_write_magic() {
     let magic = Type::magic(&[1, 2, 3]);
-    let out = magic.write_json(&json!([1, 2, 3])).unwrap();
+    let out = magic.write(&json!([1, 2, 3])).unwrap();
     assert_eq!([1u8, 2, 3].view_bits::<Msb0>(), out);
 
-    assert!(magic.write_json(&json!([1, 2, 3, 4])).is_err());
-    assert!(magic.write_json(&json!("test")).is_err());
-}
-
-#[test]
-fn test_read_struct() {
-    let message = Type::new_struct(
-        vec![
-            Field::new("head", Type::magic(b"##")),
-            Field::new("cmd", Type::uint8()),
-            Field::new("device_id", Type::string(BytesSize::Fixed(17))),
-            Field::new("version", Type::uint8()),
-            Field::new("crypto_type", Type::uint8()),
-            Field::new("data_len", Type::uint16(Endian::Big)),
-            Field::new("data", Type::bin(BytesSize::new("data_len"))),
-            Field::new("check", Type::uint8()),
-        ]);
-    let data = b"##\x0212345678901234567\x01\x01\x00\x1f\x15\x08\x1e\x0b\x05\x0c\x00\x01\x00\x06\xc9MH\x01X\xf4\xd8\x80\x002\x00d\x00\x96\x00\x01\x00\x02\x00\x00\x1e\xce";
-    let (de, d) = message.read(data.view_bits()).unwrap();
-    assert_eq!(0, d.len());
-    assert_eq!(de["head"], b"##".into());
-    assert_eq!(de["cmd"], 2u8.into());
-    assert_eq!(de["device_id"], "12345678901234567".into());
-    assert_eq!(de["data_len"], 31u16.into());
-    assert_eq!(de["check"], 0xce_u8.into());
-
-    let body = Type::new_struct(vec![
-        Field::new("datetime", Type::bin(BytesSize::Fixed(6))),
-        Field::new("number", Type::uint16(Endian::Big)),
-        Field::new("list", Type::Bin { size: None }),
-    ]);
-    let data = if let Value::Bin(data) = &de["data"] {
-        data
-    } else {
-        panic!()
-    };
-    assert_eq!(data.len(), 31);
-    let (de2, d) = body.read(data.view_bits()).unwrap();
-    assert_eq!(de2["datetime"], vec![0x15u8, 0x08, 0x1E, 0x0B, 0x05, 0x0C].into());
-    assert_eq!(de2["number"], 1u16.into());
-    assert_eq!(d.len(), 0);
+    assert!(magic.write(&json!([1, 2, 3, 4])).is_err());
+    assert!(magic.write(&json!("test")).is_err());
 }
 
 #[test]
@@ -108,24 +69,24 @@ fn test_read_array() {
             '3' as i64 => 3
         }))),
     ]));
-    let (a, d) = array.read_to_json(b"333322211".view_bits()).unwrap();
+    let (a, d) = array.read(b"333322211".view_bits()).unwrap();
     assert_eq!(d.len(), 0);
     assert_eq!(a, serde_json::json!([
         { "id": '3' as u8, "data": "333" },
         { "id": '2' as u8, "data": "22" },
         { "id": '1' as u8, "data": "1" }
     ]));
-    assert_eq!(array.read_to_json(b"".view_bits()).unwrap().0, json!([]));
+    assert_eq!(array.read(b"".view_bits()).unwrap().0, json!([]));
 
     if let Type::Array { length, .. } = &mut array {
         *length = Some(Length::Fixed(1));
     }
-    assert_eq!(array.read_to_json(b"333322211".view_bits()).unwrap(), (json!([{ "id": '3' as u8, "data": "333" }]), b"22211".view_bits()));
+    assert_eq!(array.read(b"333322211".view_bits()).unwrap(), (json!([{ "id": '3' as u8, "data": "333" }]), b"22211".view_bits()));
 
     if let Type::Array { length, .. } = &mut array {
         *length = Some(Length::Fixed(4));
     }
-    assert!(array.read_to_json(b"333322211".view_bits()).is_err());
+    assert!(array.read(b"333322211".view_bits()).is_err());
 }
 
 #[test]
@@ -144,7 +105,7 @@ fn test_read_enum() {
     let array = Type::new_array(_enum);
 
     let data = b"\x01hello\x02world\x03\x00\x00\x00\xff";
-    assert_eq!(array.read_to_json(data.view_bits()).unwrap(), (json!([
+    assert_eq!(array.read(data.view_bits()).unwrap(), (json!([
         {
             "key": 1,
             "value": "hello"
@@ -246,7 +207,7 @@ fn test_read_write() {
         49, 50, 51, 52, 53, 54, 55, 57, 56, 48,
         30
     ];
-    let (msg, _) = message.read_to_json(login.view_bits()).unwrap();
+    let (msg, _) = message.read(login.view_bits()).unwrap();
     assert_eq!(msg, json!({
         "head": b"##",
         "command": 1,
@@ -261,8 +222,8 @@ fn test_read_write() {
         },
         "check": 30
     }));
-    assert_eq!(message.write_json(&msg).unwrap().as_raw_slice(), login);
-    assert_eq!(message.write_json(&json!({
+    assert_eq!(message.write(&msg).unwrap().as_raw_slice(), login);
+    assert_eq!(message.write(&json!({
         "head": b"##",
         "command": 1,
         "device_id": "12345678901234501",
@@ -326,7 +287,7 @@ fn test_read_write() {
         98
     ];
 
-    let (msg, _) = message.read_to_json(info.view_bits()).unwrap();
+    let (msg, _) = message.read(info.view_bits()).unwrap();
     assert_eq!(msg, json!({
         "head": b"##",
         "command": 2,
@@ -392,8 +353,8 @@ fn test_read_write() {
         },
         "check": 98
     }));
-    assert_eq!(message.write_json(&msg).unwrap().as_raw_slice(), info);
-    assert_eq!(message.write_json(& json!({
+    assert_eq!(message.write(&msg).unwrap().as_raw_slice(), info);
+    assert_eq!(message.write(& json!({
         "head": b"##",
         "command": 2,
         "device_id": "12345678901234501",

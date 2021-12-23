@@ -59,7 +59,7 @@ let data = [
     3, 2, 1,
 ];
 
-let (msg, d) = message.read_to_json(data.view_bits()).unwrap();
+let (msg, d) = message.read(data.view_bits()).unwrap();
 assert_eq!(
 	serde_json::json!({
         "head": [1, 2, 3],
@@ -76,7 +76,7 @@ assert_eq!(
     msg
 );
 assert_eq!([0u8; 0].view_bits::<Msb0>(), d);
-assert_eq!(data, message.write_json(&msg).unwrap().as_raw_slice());
+assert_eq!(data, message.write(&msg).unwrap().as_raw_slice());
 
 let msg = serde_json::json!({
     "head": [1, 2, 3],
@@ -88,6 +88,6 @@ let msg = serde_json::json!({
     ],
     "tail": [3, 2, 1]
 });
-assert_eq!(data.view_bits::<Msb0>(), message.write_json(&msg).unwrap());
+assert_eq!(data.view_bits::<Msb0>(), message.write(&msg).unwrap());
 ```
 

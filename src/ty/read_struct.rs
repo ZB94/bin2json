@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use serde_json::Map;
 
 use crate::{BitSlice, BytesSize, get_data_by_size, Msb0, ReadBin, ReadBinError, Type, Value};
 use crate::ty::{Field, Length};
@@ -7,7 +7,7 @@ pub fn read_struct<'a>(fields: &[Field], size: &Option<BytesSize>, data: &'a Bit
     let src = data;
     let mut data = get_data_by_size(&data, size, None)?;
     let data_len = data.len();
-    let mut ret: HashMap<String, Value> = HashMap::with_capacity(fields.len());
+    let mut ret: Map<String, Value> = Map::with_capacity(fields.len());
 
     for Field { name, ty } in fields {
         let mut ty = ty.clone();

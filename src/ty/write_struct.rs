@@ -27,7 +27,7 @@ pub fn write_struct(
                 .ok_or(WriteBinError::EnumByTypeError)?;
             let ty = map.get(&key)
                 .ok_or(WriteBinError::EnumError)?;
-            let out = ty.write_json(value)?;
+            let out = ty.write(value)?;
             check_size(size, &out)?;
             out
         } else {
@@ -47,7 +47,7 @@ pub fn write_struct(
                 *length = None;
             }
 
-            ty.write_json(value)?
+            ty.write(value)?
         };
         ret_cap += bits.len();
 
@@ -67,7 +67,7 @@ pub fn write_struct(
             Some(l)
         ) = (ty, value.as_array()) {
             let (ty, out) = find_by(&mut result, by)?;
-            *out = Some(ty.write_json(&(l.len().into()))?);
+            *out = Some(ty.write(&(l.len().into()))?);
         }
 
         result.push((name, ty, Some(bits)));
@@ -109,7 +109,7 @@ fn set_by_value(
 
 
     let (ty, out) = find_by(result, by)?;
-    *out = Some(ty.write_json(&(by_value.into()))?);
+    *out = Some(ty.write(&(by_value.into()))?);
     Ok(())
 }
 

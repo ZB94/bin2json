@@ -523,7 +523,7 @@ impl ReadBin for Type {
 
 
 impl WriteBin for Type {
-    fn write_json(&self, value: &serde_json::Value) -> Result<BitVec<Msb0, u8>, WriteBinError> {
+    fn write(&self, value: &serde_json::Value) -> Result<BitVec<Msb0, u8>, WriteBinError> {
         let mut output = BitVec::new();
 
         macro_rules! v {
@@ -633,7 +633,7 @@ impl WriteBin for Type {
                 v!(value.as_array())
                     .iter()
                     .map(|v| -> Result<(), WriteBinError> {
-                        out.append(&mut element_type.write_json(v)?);
+                        out.append(&mut element_type.write(v)?);
                         len += 1;
                         Ok(())
                     })

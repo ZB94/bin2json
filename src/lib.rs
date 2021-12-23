@@ -2,19 +2,19 @@
 
 #[macro_use]
 extern crate serde;
+pub extern crate serde_json;
 #[macro_use]
 extern crate thiserror;
-
-use std::collections::HashMap;
 
 use deku::{DekuError, DekuRead};
 use deku::bitvec::{BitSlice, BitVec, Msb0};
 pub use deku::bitvec;
 use deku::ctx::Limit;
+use serde_json::Map;
+pub use serde_json::Value;
 
 pub use error::ReadBinError;
 pub use ty::Type;
-pub use value::Value;
 
 use crate::error::WriteBinError;
 use crate::ty::BytesSize;
@@ -22,7 +22,6 @@ use crate::ty::BytesSize;
 pub mod error;
 pub mod ty;
 
-mod value;
 pub mod range;
 
 #[cfg(test)]
@@ -30,29 +29,18 @@ mod tests;
 
 /// 从二进制读取数据
 pub trait ReadBin {
-    /// 从数据中读取数据并返回读取到的值和未使用的数据
-    fn read<'a>(&self, data: &'a BitSlice<Msb0, u8>) -> Result<(Value, &'a BitSlice<Msb0, u8>), ReadBinError>;
-
     /// 与[`ReadBin::read`]类似，但是返回的值是[`serde_json::Value`]
-    fn read_to_json<'a>(&self, data: &'a BitSlice<Msb0, u8>) -> Result<(serde_json::Value, &'a BitSlice<Msb0, u8>), ReadBinError> {
-        self.read(data)
-            .map(|(v, d)| (v.into(), d))
-    }
+    fn read<'a>(&self, data: &'a BitSlice<Msb0, u8>) -> Result<(Value, &'a BitSlice<Msb0, u8>), ReadBinError>;
 }
 
 pub trait WriteBin {
-    fn write_json(&self, value: &serde_json::Value) -> Result<BitVec<Msb0, u8>, WriteBinError>;
-
-    fn write(&self, value: &Value) -> Result<BitVec<Msb0, u8>, WriteBinError> {
-        let value: serde_json::Value = value.clone().into();
-        self.write_json(&value)
-    }
+    fn write(&self, value: &Value) -> Result<BitVec<Msb0, u8>, WriteBinError>;
 }
 
 pub(crate) fn get_data_by_size<'a>(
     data: &'a BitSlice<Msb0, u8>,
     size: &Option<BytesSize>,
-    by_map: Option<&HashMap<String, Value>>,
+    by_map: Option<&Map<String, Value>>,
 ) -> Result<&'a BitSlice<Msb0, u8>, ReadBinError> {
     let len = match size {
         None => return Ok(data),
@@ -77,10 +65,8 @@ pub(crate) fn get_data_by_size<'a>(
         }
         Some(BytesSize::By(ref by) | BytesSize::Enum { ref by, .. }) => {
             if let Some(map) = by_map {
-                let by_value: serde_json::Value = map.get(by)
-                    .cloned()
-                    .ok_or(ReadBinError::ByKeyNotFound(by.clone()))?
-                    .into();
+                let by_value = map.get(by)
+                    .ok_or(ReadBinError::ByKeyNotFound(by.clone()))?;
 
                 if let Some(BytesSize::Enum { map, .. }) = size {
                     by_value.as_i64()
