@@ -22,6 +22,8 @@ pub enum ReadBinError {
     Incomplete,
     #[error("未能找到枚举值({0})")]
     EnumKeyNotFound(i64),
+    #[error("表达式执行失败: {0}")]
+    EvalExprError(#[from] evalexpr::EvalexprError),
 }
 
 impl From<FromUtf8Error> for ReadBinError {

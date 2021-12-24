@@ -1,8 +1,11 @@
+use deku::bitvec::{BitVec, Msb0};
 use serde_json::{Map, Value};
+use crate::error::WriteBinError;
 
-use crate::{BitVec, BytesSize, Msb0, Type, WriteBin, WriteBinError};
+use crate::Type;
 use crate::range::KeyRange;
-use crate::ty::{check_size, Field, Length};
+use crate::ty::{BytesSize, Field, Length};
+use crate::ty::utils::check_size;
 
 pub fn write_struct(
     fields: &[Field],

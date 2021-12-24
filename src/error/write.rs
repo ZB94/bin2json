@@ -22,4 +22,6 @@ pub enum WriteBinError {
     EnumError,
     #[error("缺少字段`{0}`")]
     MissField(String),
+    #[error("表达式执行失败: {0}")]
+    EvalExprError(#[from] evalexpr::EvalexprError),
 }

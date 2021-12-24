@@ -1,7 +1,8 @@
-use deku::bitvec::{BitView, Msb0};
+use deku::bitvec::{BitSlice, Msb0};
 use deku::ctx::Limit;
 pub use deku::ctx::Size;
 use deku::prelude::*;
+use serde_json::Map;
 
 pub use array_length::Length;
 pub use bytes_size::BytesSize;
@@ -10,11 +11,12 @@ pub use field::Field;
 use read_array::read_array;
 use read_struct::read_struct;
 pub use unit::Unit;
+use utils::get_data_by_size;
 
-use crate::{BitSlice, get_data_by_size, ReadBin, WriteBin};
 use crate::bitvec::BitVec;
 use crate::error::{ReadBinError, WriteBinError};
 use crate::range::KeyRangeMap;
+use crate::ty::utils::{set_ctx, to_json_value};
 use crate::ty::write_struct::write_struct;
 use crate::Value;
 
@@ -26,6 +28,7 @@ mod read_array;
 mod array_length;
 mod endian;
 mod write_struct;
+mod utils;
 
 /// 数据类型
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -326,8 +329,26 @@ pub enum Type {
         #[serde(default)]
         size: Option<BytesSize>,
     },
+
+    /// 转换
+    ///
+    /// 可以在执行[`Type::convert`]时对数据进行额外的计算，支持的表达式见[expreval](https://docs.rs/evalexpr/latest/evalexpr/)
+    ///
+    /// 不建议用在复杂类型上
+    ///
+    /// **执行表达式时有以下变量：**
+    /// - 对于[`Type::Struct`]: `self.field_name`，其中`field_name`为字段列表中的字段名称
+    /// - 对于[`Type::Array`]: `self[idx]`，其中`idx`为数组成员的下标
+    /// - 对于其他类型: `self`
+    Converter {
+        #[serde(rename = "original_type")]
+        ty: Box<Type>,
+        on_read: String,
+        on_write: String,
+    },
 }
 
+/// Create
 impl Type {
     /// 大小为1比特位的布尔值
     pub const BOOL_BIT: Type = Type::Boolean { bit: true };
@@ -414,6 +435,14 @@ impl Type {
         }
     }
 
+    pub fn converter<S: Into<String>>(ty: Type, on_read: S, on_write: S) -> Self {
+        Self::Converter {
+            ty: Box::new(ty),
+            on_read: on_read.into(),
+            on_write: on_write.into(),
+        }
+    }
+
     pub const fn type_name(&self) -> &'static str {
         match self {
             Type::Magic { .. } => "Magic",
@@ -433,6 +462,7 @@ impl Type {
             Type::Struct { .. } => "Struct",
             Type::Array { .. } => "Array",
             Type::Enum { .. } => "Enum",
+            Type::Converter { .. } => "Converter",
         }
     }
 }
@@ -445,8 +475,12 @@ macro_rules! parse_numeric_field {
     }};
 }
 
-impl ReadBin for Type {
-    fn read<'a>(&self, data: &'a BitSlice<Msb0, u8>) -> Result<(Value, &'a BitSlice<Msb0, u8>), ReadBinError> {
+/// Read
+impl Type {
+    /// 尝试从数据流中读取符合定义的JSON值
+    ///
+    /// **注意:** 本方法只读取原始数值，不对[`Type::Converter`]中的数据进行转化
+    pub fn read<'a>(&self, data: &'a BitSlice<Msb0, u8>) -> Result<(Value, &'a BitSlice<Msb0, u8>), ReadBinError> {
         let (value, data): (Value, _) = match self {
             Self::Magic { ref magic } => {
                 let (input, value): (_, Vec<u8>) = DekuRead::read(
@@ -516,14 +550,25 @@ impl ReadBin for Type {
                 read_array(ty, length, size, data)?
             }
             Self::Enum { by, .. } => return Err(ReadBinError::ByKeyNotFound(by.clone())),
+            Self::Converter { ty, .. } => ty.read(data)?,
         };
         Ok((value, data))
     }
+
+    /// 尝试从数据流中读取符合定义的JSON值并应用[`Type::Converter`]中的`on_read`表达式
+    pub fn read_and_convert<'a>(&self, data: &'a BitSlice<Msb0, u8>) -> Result<(Value, &'a BitSlice<Msb0, u8>), ReadBinError> {
+        let (v, d) = self.read(data)?;
+        let v = self.convert(v, true)?;
+        Ok((v, d))
+    }
 }
 
-
-impl WriteBin for Type {
-    fn write(&self, value: &serde_json::Value) -> Result<BitVec<Msb0, u8>, WriteBinError> {
+/// Write
+impl Type {
+    /// 尝试将指定的JSON值以定义的格式写到数据流中
+    ///
+    /// **注意:** 调用之前应对调用[`Type::convert`]方法转换数据，本方法不会对[`Type::Converter`]中的数据进行转化
+    pub fn write(&self, value: &serde_json::Value) -> Result<BitVec<Msb0, u8>, WriteBinError> {
         let mut output = BitVec::new();
 
         macro_rules! v {
@@ -532,9 +577,9 @@ impl WriteBin for Type {
             }};
         }
         macro_rules! write_num {
-            ($conv: expr, $input_ty: ty, $need_ty: ty, $unit: ident, $default_bytes: literal) => {
-                let v = v!($conv);
-                if v >= <$need_ty>::MIN as $input_ty && v <= <$need_ty>::MAX as $input_ty {
+            ($need_ty: ty, $unit: ident, $default_bytes: literal) => {
+                let v = v!(value.as_f64());
+                if v >= <$need_ty>::MIN as f64 && v <= <$need_ty>::MAX as f64 {
                     let ctx: (deku::ctx::Endian, Size) = ($unit.endian.into(), $unit.size.unwrap_or(Size::Bytes($default_bytes)));
                     (v as $need_ty).write(&mut output, ctx)?;
                 } else {
@@ -553,7 +598,7 @@ impl WriteBin for Type {
             => return Err(WriteBinError::ByError),
 
             Type::Magic { magic } => {
-                let m = get_bin(v!(value.as_array()), self.type_name())?;
+                let m = utils::get_bin(v!(value.as_array()), self.type_name())?;
                 if &m == magic {
                     m.write(&mut output, ())?;
                 } else {
@@ -566,28 +611,28 @@ impl WriteBin for Type {
                 b.write(&mut output, size)?;
             }
             Type::Int8 { unit } => {
-                write_num!(value.as_i64(), i64, i8, unit, 1);
+                write_num!(i8, unit, 1);
             }
             Type::Int16 { unit } => {
-                write_num!(value.as_i64(), i64, i16, unit, 2);
+                write_num!(i16, unit, 2);
             }
             Type::Int32 { unit } => {
-                write_num!(value.as_i64(), i64, i32, unit, 4);
+                write_num!(i32, unit, 4);
             }
             Type::Int64 { unit } => {
-                write_num!(value.as_i64(), i64, i64, unit, 8);
+                write_num!(i64, unit, 8);
             }
             Type::Uint8 { unit } => {
-                write_num!(value.as_u64(), u64, u8, unit, 1);
+                write_num!(u8, unit, 1);
             }
             Type::Uint16 { unit } => {
-                write_num!(value.as_u64(), u64, u16, unit, 2);
+                write_num!(u16, unit, 2);
             }
             Type::Uint32 { unit } => {
-                write_num!(value.as_u64(), u64, u32, unit, 4);
+                write_num!(u32, unit, 4);
             }
             Type::Uint64 { unit } => {
-                write_num!(value.as_u64(), u64, u64, unit, 8);
+                write_num!(u64, unit, 8);
             }
             Type::Float32 { endian } => {
                 let v = v!(value.as_f64());
@@ -609,7 +654,7 @@ impl WriteBin for Type {
                 let b = if let Type::String { .. } = self {
                     v!(value.as_str()).as_bytes()
                 } else {
-                    c = Some(get_bin(v!(value.as_array()), self.type_name())?);
+                    c = Some(utils::get_bin(v!(value.as_array()), self.type_name())?);
                     c.as_ref()
                         .map(|v| v.as_slice())
                         .unwrap()
@@ -645,44 +690,70 @@ impl WriteBin for Type {
                     }
                 }
 
-                check_size(size, &out)?;
+                utils::check_size(size, &out)?;
                 output = out;
             }
             Type::Struct { fields, size } => {
                 let obj = v!(value.as_object());
                 let out = write_struct(fields, obj)?;
-                check_size(size, &out)?;
+                utils::check_size(size, &out)?;
                 output = out;
+            }
+            Type::Converter { ty, .. } => {
+                output = ty.write(value)?;
             }
         };
 
         Ok(output)
     }
+
+    /// 对输入数据应用[`Type::Converter`]中的`on_write`表达式，并将应用后的数据写到数据流中
+    pub fn convert_and_write(&self, value: serde_json::Value) -> Result<BitVec<Msb0, u8>, WriteBinError> {
+        let value = self.convert(value, false)?;
+        self.write(&value)
+    }
 }
 
-fn get_bin(list: &Vec<serde_json::Value>, type_name: &'static str) -> Result<Vec<u8>, WriteBinError> {
-    list.iter()
-        .map(|v| {
-            let v = v.as_u64().ok_or(WriteBinError::TypeError(type_name))?;
-            if v <= u8::MAX as u64 {
-                Ok(v as u8)
-            } else {
-                Err(WriteBinError::TypeError(type_name))
+/// Convert
+impl Type {
+    /// 如果类型为[`Type::Converter`]，则将输入值作为变量执行设置的表达式，并返回表达式执行的结果，否则返回输入值
+    pub fn convert(&self, value: Value, is_read: bool) -> Result<Value, evalexpr::EvalexprError> {
+        match (self, value) {
+            (Type::Converter { on_read, on_write, .. }, value) => {
+                let mut ctx = evalexpr::HashMapContext::new();
+                set_ctx(&value, None, &mut ctx)?;
+
+                let expr = if is_read { on_read } else { on_write };
+                let v = evalexpr::eval_with_context(expr, &ctx)?;
+                Ok(to_json_value(v))
             }
-        })
-        .collect()
-}
-
-
-fn check_size(size: &Option<BytesSize>, out: &BitVec<Msb0, u8>) -> Result<(), WriteBinError> {
-    if let Some(BytesSize::Fixed(size)) = size {
-        if *size * 8 != out.len() {
-            return Err(WriteBinError::BytesSizeError);
-        }
-    } else if let Some(BytesSize::EndWith(end)) = size {
-        if !out.ends_with(end.view_bits::<Msb0>()) {
-            return Err(WriteBinError::BytesSizeError);
+            (Type::Struct { fields, .. }, Value::Object(mut map)) => {
+                let mut rm = Map::new();
+                for Field { name, ty } in fields {
+                    if let Some((k, v)) = map.remove_entry(name) {
+                        let ty = if let Type::Enum { by, map, .. } = ty {
+                            let k = rm.get(by)
+                                .ok_or(evalexpr::EvalexprError::CustomMessage(format!("未找到引用键: {}", by)))?
+                                .as_i64()
+                                .ok_or(evalexpr::EvalexprError::CustomMessage(format!("引用键({})无法转化为整数", by)))?;
+                            map.get(&k)
+                                .ok_or(evalexpr::EvalexprError::CustomMessage(format!("未能找到引用键({})对应的类型({})", by, k)))?
+                        } else {
+                            ty
+                        };
+                        rm.insert(k, ty.convert(v, is_read)?);
+                    }
+                }
+                rm.append(&mut map);
+                Ok(Value::Object(rm))
+            }
+            (Type::Array { element_type, .. }, Value::Array(array)) => {
+                let a = array.into_iter()
+                    .map(|v| element_type.convert(v, is_read))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(Value::Array(a))
+            }
+            (_, value) => Ok(value),
         }
     }
-    Ok(())
 }

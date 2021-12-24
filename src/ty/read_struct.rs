@@ -1,7 +1,9 @@
+use deku::bitvec::{BitSlice, Msb0};
 use serde_json::Map;
 
-use crate::{BitSlice, BytesSize, get_data_by_size, Msb0, ReadBin, ReadBinError, Type, Value};
-use crate::ty::{Field, Length};
+use crate::{ReadBinError, Type, Value};
+use crate::ty::{BytesSize, Field, Length};
+use crate::ty::utils::get_data_by_size;
 
 pub fn read_struct<'a>(fields: &[Field], size: &Option<BytesSize>, data: &'a BitSlice<Msb0, u8>) -> Result<(Value, &'a BitSlice<Msb0, u8>), ReadBinError> {
     let src = data;

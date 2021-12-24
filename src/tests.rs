@@ -1,8 +1,8 @@
-use deku::bitvec::BitView;
+use deku::bitvec::{BitView, Msb0};
 use deku::ctx::Size;
 use serde_json::json;
 
-use crate::{Msb0, range_map, ReadBin, Type, WriteBin};
+use crate::{range_map, Type};
 use crate::ty::{BytesSize, Endian, Field, Length, Unit};
 
 #[test]
@@ -41,7 +41,7 @@ fn test_write_num() {
     let out = t_u64.write(&json!(123456)).unwrap();
     assert_eq!(123456u64.to_be_bytes().view_bits::<Msb0>(), out);
     assert!(t_u64.write(&json!(-1)).is_err());
-    assert!(t_u64.write(&json!(5.0)).is_err());
+    assert!(t_u64.write(&json!(-5.0)).is_err());
 
     let t_f32 = Type::float32(Endian::Big);
     let out = t_f32.write(&json!(100.0)).unwrap();
@@ -178,7 +178,7 @@ fn test_read_write() {
                                 Field::new("skip", Type::Uint8{ unit: Unit::new(Endian::Big, Size::Bits(5))}),
                                 Field::new("longitude", Type::uint32(Endian::Big)),
                                 Field::new("latitude", Type::uint32(Endian::Big)),
-                                Field::new("mileage", Type::uint32(Endian::Big)),
+                                Field::new("mileage", Type::converter(Type::uint32(Endian::Big), "self * 0.1", "floor(self * 10)")),
                             ]),
                             130 => Type::new_struct(vec![
                                 Field::new("absorption_coefficient", Type::uint16(Endian::Big)),
@@ -207,7 +207,7 @@ fn test_read_write() {
         49, 50, 51, 52, 53, 54, 55, 57, 56, 48,
         30
     ];
-    let (msg, _) = message.read(login.view_bits()).unwrap();
+    let (msg, _) = message.read_and_convert(login.view_bits()).unwrap();
     assert_eq!(msg, json!({
         "head": b"##",
         "command": 1,
@@ -222,8 +222,8 @@ fn test_read_write() {
         },
         "check": 30
     }));
-    assert_eq!(message.write(&msg).unwrap().as_raw_slice(), login);
-    assert_eq!(message.write(&json!({
+    assert_eq!(message.convert_and_write(msg).unwrap().as_raw_slice(), login);
+    assert_eq!(message.convert_and_write(json!({
         "head": b"##",
         "command": 1,
         "device_id": "12345678901234501",
@@ -265,7 +265,7 @@ fn test_read_write() {
         32,
         0, 25, 240, 160,
         0, 27, 119, 64,
-        0, 0, 0, 190,
+        0, 0, 0, 100,
         130,
         7, 208,
         0, 210,
@@ -287,7 +287,7 @@ fn test_read_write() {
         98
     ];
 
-    let (msg, _) = message.read(info.view_bits()).unwrap();
+    let (msg, _) = message.read_and_convert(info.view_bits()).unwrap();
     assert_eq!(msg, json!({
         "head": b"##",
         "command": 2,
@@ -323,7 +323,7 @@ fn test_read_write() {
                         "skip": 0,
                         "longitude": u32::from_be_bytes([0, 25, 240, 160]),
                         "latitude": u32::from_be_bytes([0, 27, 119, 64]),
-                        "mileage": u32::from_be_bytes([0, 0, 0, 190]),
+                        "mileage": 10.0,
                     }
                 },
                 {
@@ -353,8 +353,8 @@ fn test_read_write() {
         },
         "check": 98
     }));
-    assert_eq!(message.write(&msg).unwrap().as_raw_slice(), info);
-    assert_eq!(message.write(& json!({
+    assert_eq!(message.convert_and_write(msg).unwrap().as_raw_slice(), info);
+    assert_eq!(message.convert_and_write(json!({
         "head": b"##",
         "command": 2,
         "device_id": "12345678901234501",
@@ -388,7 +388,7 @@ fn test_read_write() {
                         "skip": 0,
                         "longitude": u32::from_be_bytes([0, 25, 240, 160]),
                         "latitude": u32::from_be_bytes([0, 27, 119, 64]),
-                        "mileage": u32::from_be_bytes([0, 0, 0, 190]),
+                        "mileage": 10.0,
                     }
                 },
                 {

@@ -11,12 +11,12 @@
 - [x] 将JSON值按照定义格式转为二进制数据
 - [ ] 支持数据加/解密、签名/验证
 - [ ] 数据验证
-- [ ] 数据简单计算和格式转换
+- [x] 数据简单计算和格式转换
 
 ## 使用示例
 
 ```rust
-use bin2json::{Type, ReadBin, WriteBin};
+use bin2json::Type;
 use bin2json::bitvec::{BitView, Msb0};
 
 let message: Type = serde_json::from_str(r#"{
@@ -42,7 +42,13 @@ let message: Type = serde_json::from_str(r#"{
     					"map": {
     						"1": { "type": "Uint16" },
     						"2": { "type": "Bin", "size": 5 },
-    						"3": { "type": "Float32" }
+    						"3": { "type": "Float32" },
+    						"4": { 
+    							"type": "Converter",
+    							"original_type": { "type": "Uint32" },
+    							"on_read": "self / 100",
+    							"on_write": "self * 100"
+    						}
     					}
     				}
     			]
@@ -55,32 +61,34 @@ let message: Type = serde_json::from_str(r#"{
 let data = [
 	1, 2, 3,
     1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
-    0, 14,
-    0, 3,
+    0, 19,
+    0, 4,
     1, 0, 100,
     2, 104, 101, 108, 108, 111,
     3, 4, 3, 2, 1,
+    4, 0, 0, 0, 200,
     3, 2, 1,
 ];
 
-let (msg, d) = message.read(data.view_bits()).unwrap();
+let (msg, d) = message.read_and_convert(data.view_bits()).unwrap();
 assert_eq!(
 	serde_json::json!({
         "head": [1, 2, 3],
         "field": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-        "array_size": 14,
-        "array_len": 3,
+        "array_size": 19,
+        "array_len": 4,
         "array": [
             { "ty": 1, "value": 100u16 },
             { "ty": 2, "value": b"hello" },
-            { "ty": 3, "value": f32::from_be_bytes([4, 3, 2, 1]) }
+            { "ty": 3, "value": f32::from_be_bytes([4, 3, 2, 1]) },
+            { "ty": 4, "value": 2 }
         ],
         "tail": [3, 2, 1]
     }),
     msg
 );
 assert_eq!([0u8; 0].view_bits::<Msb0>(), d);
-assert_eq!(data, message.write(&msg).unwrap().as_raw_slice());
+assert_eq!(data, message.convert_and_write(msg).unwrap().as_raw_slice());
 
 let msg = serde_json::json!({
     "head": [1, 2, 3],
@@ -88,10 +96,11 @@ let msg = serde_json::json!({
     "array": [
         { "ty": 1, "value": 100u16 },
         { "ty": 2, "value": b"hello" },
-        { "ty": 3, "value": f32::from_be_bytes([4, 3, 2, 1]) }
+        { "ty": 3, "value": f32::from_be_bytes([4, 3, 2, 1]) },
+        { "ty": 4, "value": 2 }
     ],
     "tail": [3, 2, 1]
 });
-assert_eq!(data.view_bits::<Msb0>(), message.write(&msg).unwrap());
+assert_eq!(data.view_bits::<Msb0>(), message.convert_and_write(msg).unwrap());
 ```
 
