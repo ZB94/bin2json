@@ -10,10 +10,17 @@
 - [x] 数据格式定义可以从文本反序列化或序列化为指定格式的文本
 - [x] 将JSON值按照定义格式转为二进制数据
 - [ ] 支持数据加/解密、签名/验证
-- [ ] 数据验证
+- [x] 数据验证
 - [x] 数据简单计算和格式转换
 
-## 使用示例
+## 示例
+
+### 示例列表
+
+- [完整示例](#完整示例)
+- [数值转换、校验示例](#数值转换、校验示例)
+
+### 完整示例
 
 ```rust
 use bin2json::Type;
@@ -46,8 +53,12 @@ let message: Type = serde_json::from_str(r#"{
     						"4": { 
     							"type": "Converter",
     							"original_type": { "type": "Uint32" },
-    							"on_read": "self / 100",
-    							"on_write": "self * 100"
+    							"on_read": {
+    								"convert": "self / 100"
+    							},
+    							"on_write": {
+	    							"convert": "self * 100"
+    							}
     						}
     					}
     				}
@@ -102,5 +113,41 @@ let msg = serde_json::json!({
     "tail": [3, 2, 1]
 });
 assert_eq!(data.view_bits::<Msb0>(), message.convert_and_write(msg).unwrap());
+```
+
+### 数值转换、校验示例
+
+```rust
+use bin2json::Type;
+use bin2json::bitvec::{BitView, Msb0};
+
+let ty: Type = serde_json::from_str(r#"{
+	"type": "Converter",
+    "original_type": { "type": "Uint32" },
+    "on_read": {
+    	"before_valid": "self > 100",
+    	"convert": "self * 10",
+    	"after_valid": "self < 5000"
+    },
+    "on_write": {
+    	"before_valid": "self < 5000",
+    	"convert": "self / 10",
+    	"after_valid": "self > 100"
+    }
+}"#).unwrap();
+
+// 读
+assert_eq!(serde_json::json!(2000), ty.read_and_convert(200u32.to_be_bytes().view_bits::<Msb0>()).unwrap().0);
+// before error
+assert!(ty.read_and_convert(100u32.to_be_bytes().view_bits::<Msb0>()).is_err());
+// after error
+assert!(ty.read_and_convert(500u32.to_be_bytes().view_bits::<Msb0>()).is_err());
+
+// 写
+assert_eq!(200u32.to_be_bytes().view_bits::<Msb0>(), ty.convert_and_write(serde_json::json!(2000)).unwrap());
+// before error
+assert!(ty.convert_and_write(serde_json::json!(5000)).is_err());
+// after error
+assert!(ty.convert_and_write(serde_json::json!(1000)).is_err());
 ```
 

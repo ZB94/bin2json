@@ -6,6 +6,7 @@ use serde_json::Map;
 
 pub use array_length::Length;
 pub use bytes_size::BytesSize;
+pub use converter::Converter;
 pub use endian::Endian;
 pub use field::Field;
 use read_array::read_array;
@@ -16,10 +17,10 @@ use utils::get_data_by_size;
 use crate::bitvec::BitVec;
 use crate::error::{ReadBinError, WriteBinError};
 use crate::range::KeyRangeMap;
-use crate::ty::utils::{set_ctx, to_json_value};
 use crate::ty::write_struct::write_struct;
 use crate::Value;
 
+mod converter;
 mod bytes_size;
 mod unit;
 mod read_struct;
@@ -341,10 +342,12 @@ pub enum Type {
     /// - 对于[`Type::Array`]: `self[idx]`，其中`idx`为数组成员的下标
     /// - 对于其他类型: `self`
     Converter {
-        #[serde(rename = "original_type")]
-        ty: Box<Type>,
-        on_read: String,
-        on_write: String,
+        /// 数据原始类型
+        original_type: Box<Type>,
+        #[serde(default)]
+        on_read: Converter,
+        #[serde(default)]
+        on_write: Converter,
     },
 }
 
@@ -437,9 +440,9 @@ impl Type {
 
     pub fn converter<S: Into<String>>(ty: Type, on_read: S, on_write: S) -> Self {
         Self::Converter {
-            ty: Box::new(ty),
-            on_read: on_read.into(),
-            on_write: on_write.into(),
+            original_type: Box::new(ty),
+            on_read: Converter::new(on_read),
+            on_write: Converter::new(on_write),
         }
     }
 
@@ -550,7 +553,7 @@ impl Type {
                 read_array(ty, length, size, data)?
             }
             Self::Enum { by, .. } => return Err(ReadBinError::ByKeyNotFound(by.clone())),
-            Self::Converter { ty, .. } => ty.read(data)?,
+            Self::Converter { original_type, .. } => original_type.read(data)?,
         };
         Ok((value, data))
     }
@@ -699,8 +702,8 @@ impl Type {
                 utils::check_size(size, &out)?;
                 output = out;
             }
-            Type::Converter { ty, .. } => {
-                output = ty.write(value)?;
+            Type::Converter { original_type, .. } => {
+                output = original_type.write(value)?;
             }
         };
 
@@ -720,12 +723,11 @@ impl Type {
     pub fn convert(&self, value: Value, is_read: bool) -> Result<Value, evalexpr::EvalexprError> {
         match (self, value) {
             (Type::Converter { on_read, on_write, .. }, value) => {
-                let mut ctx = evalexpr::HashMapContext::new();
-                set_ctx(&value, None, &mut ctx)?;
-
-                let expr = if is_read { on_read } else { on_write };
-                let v = evalexpr::eval_with_context(expr, &ctx)?;
-                Ok(to_json_value(v))
+                if is_read {
+                    on_read.convert(value)
+                } else {
+                    on_write.convert(value)
+                }
             }
             (Type::Struct { fields, .. }, Value::Object(mut map)) => {
                 let mut rm = Map::new();

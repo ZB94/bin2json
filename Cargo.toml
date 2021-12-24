@@ -1,6 +1,6 @@
 [package]
 name = "bin2json"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -10,4 +10,4 @@ thiserror = "1.0.30"
 serde_json = "1.0.72"
 deku = "0.12.5"
 serde = { version = "1.0.130", features = ["derive"] }
-evalexpr = "6.6.0"
+evalexpr = { version = "6.6.0", features = ["serde_support"] }

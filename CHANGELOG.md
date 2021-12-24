@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## [0.3.0] 2021-12-24
+
+### 添加
+
+- 添加`Converter`，负责数据校验和转换
+
+### 修改
+
+- `Type::Converter`的`on_read`和`on_write`的类型修改为`Converter`
+
 ## [0.2.0] 2021-12-24
 
 ### 添加
