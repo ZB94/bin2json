@@ -103,7 +103,7 @@ pub fn write_struct(
             }
             let (_, data) = Vec::<u8>::read(
                 &ret[start_pos..end_pos],
-                Limit::new_size(Size::Bits(size))
+                Limit::new_size(Size::Bits(size)),
             )?;
             let checksum = method.checksum(&data);
             ret.extend_from_raw_slice(&checksum);

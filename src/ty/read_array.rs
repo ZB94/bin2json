@@ -1,8 +1,9 @@
 use deku::bitvec::{BitSlice, Msb0};
-use crate::Type;
+
 use crate::error::ReadBinError;
 use crate::ty::{BytesSize, Length};
 use crate::ty::utils::get_data_by_size;
+use crate::Type;
 use crate::Value;
 
 pub fn read_array<'a>(

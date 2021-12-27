@@ -15,6 +15,7 @@ pub use ty::Type;
 pub mod error;
 pub mod ty;
 pub mod range;
+pub mod secure;
 
 #[cfg(test)]
 mod tests;

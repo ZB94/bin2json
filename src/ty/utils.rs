@@ -1,12 +1,12 @@
+use deku::{DekuError, DekuRead};
 use deku::bitvec::{BitSlice, BitVec, BitView, Msb0};
+use deku::ctx::Limit;
 use evalexpr::ContextWithMutableVariables;
 use serde_json::{Map, Value};
-use deku::{DekuError, DekuRead};
-use deku::ctx::Limit;
+
 use crate::error::WriteBinError;
 use crate::ReadBinError;
 use crate::ty::BytesSize;
-
 
 pub fn get_bin(list: &Vec<serde_json::Value>, type_name: &'static str) -> Result<Vec<u8>, WriteBinError> {
     list.iter()

@@ -1,4 +1,3 @@
-
 /// 字节顺序
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Endian {

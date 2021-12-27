@@ -35,7 +35,7 @@ pub fn read_struct<'a>(fields: &[Field], size: &Option<BytesSize>, data: &'a Bit
             }
             let (_, checksum_data) = Vec::<u8>::read(
                 &src[start_pos..end_pos],
-                Limit::new_size(Size::Bits(size))
+                Limit::new_size(Size::Bits(size)),
             )?;
 
             // 检查校验和

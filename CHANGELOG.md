@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### 添加
+
+- 添加`secure::{SecureKey, Hasher, SecureError}`
+
 ## [0.4.0] 2021-12-27
 
 ### 添加
