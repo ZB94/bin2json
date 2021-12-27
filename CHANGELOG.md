@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## [0.4.0] 2021-12-27
+
+### 添加
+
+- 添加`Checksum`类型
+- `Type`添加枚举值`Checksum`
+- `ReadBinError`, `WriteBinError`添加枚举值`ChecksumError`
+
+### 修改
+
+- `Type::Magic`现在在写入时忽略输入值
+
+### 删除
+
+- `WriteBinError`移除枚举值`MagicError`
+
 ## [0.3.0] 2021-12-24
 
 ### 添加
@@ -28,5 +44,4 @@
 
 - 实现二进制数据与JSON数据的互相转换
 - 实现格式定义的序列化与反序列化
-
 

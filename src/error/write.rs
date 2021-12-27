@@ -6,8 +6,6 @@ pub enum WriteBinError {
     DekuError(#[from] DekuError),
     #[error("输入值的类型错误，需要的类型为: {0}")]
     TypeError(&'static str),
-    #[error("Magic错误，需要的值为: {need:?}，输入值为: {input:?}")]
-    MagicError { input: Vec<u8>, need: Vec<u8> },
     #[error("输入值超出`{0}`的有效值范围")]
     ValueOverflowOf(&'static str),
     #[error("引用字段大小只能存在于结构字段的定义中，且被引用字段定义须在引用字段之前")]
@@ -20,8 +18,10 @@ pub enum WriteBinError {
     LengthError { input: usize, need: usize },
     #[error("枚举值对应零个或多个值")]
     EnumError,
-    #[error("缺少字段`{0}`")]
+    #[error("缺少字段`{0}`或输入为空")]
     MissField(String),
     #[error("表达式执行失败: {0}")]
     EvalExprError(#[from] evalexpr::EvalexprError),
+    #[error("输入数据不满足校验和计算条件")]
+    ChecksumError,
 }

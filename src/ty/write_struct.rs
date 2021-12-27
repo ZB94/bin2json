@@ -1,11 +1,15 @@
-use deku::bitvec::{BitVec, Msb0};
-use serde_json::{Map, Value};
-use crate::error::WriteBinError;
+use std::collections::HashMap;
 
-use crate::Type;
+use deku::bitvec::{BitVec, BitView, Msb0};
+use deku::ctx::{Limit, Size};
+use deku::DekuRead;
+use serde_json::{Map, Value};
+
+use crate::error::WriteBinError;
 use crate::range::KeyRange;
 use crate::ty::{BytesSize, Field, Length};
 use crate::ty::utils::check_size;
+use crate::Type;
 
 pub fn write_struct(
     fields: &[Field],
@@ -15,13 +19,21 @@ pub fn write_struct(
     let mut ret_cap = 0;
 
     for Field { name, ty } in fields {
-        let value = object.get(name);
-        if value.map(Value::is_null).unwrap_or(true) {
-            result.push((name, ty, None));
-            continue;
-        }
-
-        let value = value.unwrap();
+        let value = match (ty, object.get(name)) {
+            (Type::Checksum { .. }, _) => {
+                result.push((name, ty, None));
+                continue;
+            }
+            (Type::Magic { magic }, _) => {
+                result.push((name, ty, Some(magic.view_bits().to_bitvec())));
+                continue;
+            }
+            (_, None | Some(Value::Null)) => {
+                result.push((name, ty, None));
+                continue;
+            }
+            (_, Some(value)) => value
+        };
 
         let bits = if let Type::Enum { by, map, size } = ty {
             let key = object.get(by)
@@ -77,8 +89,27 @@ pub fn write_struct(
     }
 
     let mut ret = BitVec::with_capacity(ret_cap);
-    for (k, _, v) in result {
-        ret.append(&mut v.ok_or(WriteBinError::MissField(k.clone()))?);
+    let mut key_pos = HashMap::with_capacity(fields.len());
+    for (k, ty, v) in result {
+        key_pos.insert(k, ret.len());
+
+        if let Type::Checksum { method, start_key, end_key } = ty {
+            let end_key = end_key.as_ref().unwrap_or(k);
+            let start_pos = key_pos[start_key];
+            let end_pos = key_pos[end_key];
+            let size = end_pos - start_pos;
+            if size == 0 || size % 8 != 0 {
+                return Err(WriteBinError::ChecksumError);
+            }
+            let (_, data) = Vec::<u8>::read(
+                &ret[start_pos..end_pos],
+                Limit::new_size(Size::Bits(size))
+            )?;
+            let checksum = method.checksum(&data);
+            ret.extend_from_raw_slice(&checksum);
+        } else {
+            ret.append(&mut v.ok_or(WriteBinError::MissField(k.clone()))?);
+        };
     }
     Ok(ret)
 }

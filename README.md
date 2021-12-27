@@ -9,9 +9,10 @@
 - [x] 将二进制数据转化为定义格式的SON值
 - [x] 数据格式定义可以从文本反序列化或序列化为指定格式的文本
 - [x] 将JSON值按照定义格式转为二进制数据
-- [ ] 支持数据加/解密、签名/验证
 - [x] 数据验证
 - [x] 数据简单计算和格式转换
+- [x] 校验和
+- [ ] 支持数据加/解密、签名/验证
 
 ## 示例
 
@@ -102,15 +103,13 @@ assert_eq!([0u8; 0].view_bits::<Msb0>(), d);
 assert_eq!(data, message.convert_and_write(msg).unwrap().as_raw_slice());
 
 let msg = serde_json::json!({
-    "head": [1, 2, 3],
     "field": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
     "array": [
         { "ty": 1, "value": 100u16 },
         { "ty": 2, "value": b"hello" },
         { "ty": 3, "value": f32::from_be_bytes([4, 3, 2, 1]) },
         { "ty": 4, "value": 2 }
-    ],
-    "tail": [3, 2, 1]
+    ]
 });
 assert_eq!(data.view_bits::<Msb0>(), message.convert_and_write(msg).unwrap());
 ```

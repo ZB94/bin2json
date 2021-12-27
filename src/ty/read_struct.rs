@@ -1,4 +1,8 @@
+use std::collections::HashMap;
+
 use deku::bitvec::{BitSlice, Msb0};
+use deku::ctx::{Limit, Size};
+use deku::DekuRead;
 use serde_json::Map;
 
 use crate::{ReadBinError, Type, Value};
@@ -10,8 +14,40 @@ pub fn read_struct<'a>(fields: &[Field], size: &Option<BytesSize>, data: &'a Bit
     let mut data = get_data_by_size(&data, size, None)?;
     let data_len = data.len();
     let mut ret: Map<String, Value> = Map::with_capacity(fields.len());
+    let mut key_pos: HashMap<&String, usize> = HashMap::with_capacity(fields.len());
 
     for Field { name, ty } in fields {
+        key_pos.insert(name, src.len() - data.len());
+
+        if let Type::Checksum { method, start_key, end_key } = ty {
+            // 读取校验和
+            let (checksum, d) = method.read(data)?;
+
+            // 获取要计算校验和的数据
+            let end_key = end_key.as_ref().unwrap_or(name);
+            let start_pos = *key_pos.get(start_key)
+                .ok_or(ReadBinError::ByKeyNotFound(start_key.clone()))?;
+            let end_pos = *key_pos.get(end_key)
+                .ok_or(ReadBinError::ByKeyNotFound(end_key.clone()))?;
+            let size = end_pos - start_pos;
+            if size == 0 || size % 8 != 0 {
+                return Err(ReadBinError::ChecksumError);
+            }
+            let (_, checksum_data) = Vec::<u8>::read(
+                &src[start_pos..end_pos],
+                Limit::new_size(Size::Bits(size))
+            )?;
+
+            // 检查校验和
+            if method.check(&checksum_data, &checksum) {
+                ret.insert(name.to_string(), checksum.into());
+                data = d;
+                continue;
+            } else {
+                return Err(ReadBinError::ChecksumError);
+            }
+        }
+
         let mut ty = ty.clone();
         if let Type::Array { length: Some(length), .. } = &mut ty {
             if let Length::By(by) = length {

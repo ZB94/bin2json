@@ -6,6 +6,7 @@ use serde_json::Map;
 
 pub use array_length::Length;
 pub use bytes_size::BytesSize;
+pub use checksum::Checksum;
 pub use converter::Converter;
 pub use endian::Endian;
 pub use field::Field;
@@ -30,6 +31,7 @@ mod array_length;
 mod endian;
 mod write_struct;
 mod utils;
+mod checksum;
 
 /// 数据类型
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -349,6 +351,19 @@ pub enum Type {
         #[serde(default)]
         on_write: Converter,
     },
+
+    /// 校验和
+    ///
+    /// **注意：** 该类型必须定义于结构体之中
+    Checksum {
+        /// 校验方式
+        method: Checksum,
+        /// 校验数据的起始字段名称
+        start_key: String,
+        /// 校验数据的结束字段名称（计算的数据到该字段之前，不包含该字段的数据）。默认值为本字段
+        #[serde(default)]
+        end_key: Option<String>,
+    },
 }
 
 /// Create
@@ -446,6 +461,14 @@ impl Type {
         }
     }
 
+    pub fn checksum<S: Into<String>>(method: Checksum, start_key: S) -> Self {
+        Self::Checksum {
+            method,
+            start_key: start_key.into(),
+            end_key: None,
+        }
+    }
+
     pub const fn type_name(&self) -> &'static str {
         match self {
             Type::Magic { .. } => "Magic",
@@ -466,6 +489,7 @@ impl Type {
             Type::Array { .. } => "Array",
             Type::Enum { .. } => "Enum",
             Type::Converter { .. } => "Converter",
+            Type::Checksum { .. } => "Checksum",
         }
     }
 }
@@ -552,8 +576,11 @@ impl Type {
             Self::Array { element_type: ty, size, length } => {
                 read_array(ty, length, size, data)?
             }
-            Self::Enum { by, .. } => return Err(ReadBinError::ByKeyNotFound(by.clone())),
             Self::Converter { original_type, .. } => original_type.read(data)?,
+
+            | Self::Enum { by, .. }
+            | Self::Checksum { start_key: by, .. }
+            => return Err(ReadBinError::ByKeyNotFound(by.clone())),
         };
         Ok((value, data))
     }
@@ -598,15 +625,11 @@ impl Type {
             | Type::Array { size: Some(BytesSize::By(_) | BytesSize::Enum { .. }), .. }
             | Type::Array { length: Some(Length::By(_)), .. }
             | Type::Enum { .. }
+            | Type::Checksum { .. }
             => return Err(WriteBinError::ByError),
 
             Type::Magic { magic } => {
-                let m = utils::get_bin(v!(value.as_array()), self.type_name())?;
-                if &m == magic {
-                    m.write(&mut output, ())?;
-                } else {
-                    return Err(WriteBinError::MagicError { input: m, need: magic.clone() });
-                }
+                magic.write(&mut output, ())?
             }
             Type::Boolean { bit } => {
                 let b = v!(value.as_bool());

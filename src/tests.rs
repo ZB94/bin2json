@@ -3,7 +3,31 @@ use deku::ctx::Size;
 use serde_json::json;
 
 use crate::{range_map, Type};
-use crate::ty::{BytesSize, Endian, Field, Length, Unit};
+use crate::ty::{BytesSize, Checksum, Endian, Field, Length, Unit};
+
+#[test]
+fn test_checksum() {
+    let cs = Type::new_struct(vec![
+        Field::new("data", Type::bin(BytesSize::new(10))),
+        Field::new("checksum", Type::checksum(Checksum::Xor, "data")),
+    ]);
+    let mut data = vec![1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    let checksum = {
+        let mut b = data[0];
+        for i in &data[1..] {
+            b ^= *i;
+        }
+        b
+    };
+    data.push(checksum);
+    assert_eq!(
+        json!({ "data": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], "checksum": [checksum] }),
+        cs.read(data.view_bits()).unwrap().0
+    );
+
+    let d = cs.write(&json!({ "data": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]})).unwrap();
+    assert_eq!(data.view_bits::<Msb0>(), d);
+}
 
 #[test]
 fn test_write_array() {
@@ -54,9 +78,8 @@ fn test_write_magic() {
     let magic = Type::magic(&[1, 2, 3]);
     let out = magic.write(&json!([1, 2, 3])).unwrap();
     assert_eq!([1u8, 2, 3].view_bits::<Msb0>(), out);
-
-    assert!(magic.write(&json!([1, 2, 3, 4])).is_err());
-    assert!(magic.write(&json!("test")).is_err());
+    assert_eq!([1u8, 2, 3].view_bits::<Msb0>(), magic.write(&json!([1, 2, 3, 4])).unwrap());
+    assert_eq!([1u8, 2, 3].view_bits::<Msb0>(), magic.write(&json!("test")).unwrap());
 }
 
 #[test]
@@ -191,7 +214,7 @@ fn test_read_write() {
             },
             size: Some(BytesSize::new("data_len")),
         }),
-        Field::new("check", Type::uint8()),
+        Field::new("check", Type::checksum(Checksum::Xor, "command")),
     ]);
 
     let login = [
@@ -220,11 +243,10 @@ fn test_read_write() {
             "number": 3,
             "sim_id": "12345678901234567980"
         },
-        "check": 30
+        "check": [30]
     }));
     assert_eq!(message.convert_and_write(msg).unwrap().as_raw_slice(), login);
     assert_eq!(message.convert_and_write(json!({
-        "head": b"##",
         "command": 1,
         "device_id": "12345678901234501",
         "version": 1,
@@ -233,8 +255,7 @@ fn test_read_write() {
             "datetime": [21, 12, 17, 14, 54, 1],
             "number": 3,
             "sim_id": "12345678901234567980"
-        },
-        "check": 30
+        }
     })).unwrap().as_raw_slice(), login);
 
     let info = [
@@ -284,7 +305,7 @@ fn test_read_write() {
         0, 0, 0, 25,
         0, 0, 0, 26,
         0, 0, 0, 27,
-        98
+        184
     ];
 
     let (msg, _) = message.read_and_convert(info.view_bits()).unwrap();
@@ -351,11 +372,10 @@ fn test_read_write() {
                 }
             ]
         },
-        "check": 98
+        "check": [184]
     }));
     assert_eq!(message.convert_and_write(msg).unwrap().as_raw_slice(), info);
     assert_eq!(message.convert_and_write(json!({
-        "head": b"##",
         "command": 2,
         "device_id": "12345678901234501",
         "version": 1,
@@ -414,7 +434,6 @@ fn test_read_write() {
                     }
                 }
             ]
-        },
-        "check": 98
+        }
     })).unwrap().as_raw_slice(), info);
 }
