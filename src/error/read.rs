@@ -25,6 +25,10 @@ pub enum ReadBinError {
     EvalExprError(#[from] evalexpr::EvalexprError),
     #[error("校验和校验失败")]
     ChecksumError,
+    #[error("解密失败: {0}")]
+    DecryptError(String),
+    #[error("签名验证失败: {0}")]
+    VerifyError(String),
 }
 
 impl From<FromUtf8Error> for ReadBinError {

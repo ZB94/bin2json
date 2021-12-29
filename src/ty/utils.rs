@@ -22,6 +22,7 @@ pub fn get_bin(list: &Vec<serde_json::Value>, type_name: &'static str) -> Result
 }
 
 
+/// 检查输入是否为指定长度或者以指定字节数组结束
 pub fn check_size(size: &Option<BytesSize>, out: &BitVec<Msb0, u8>) -> Result<(), WriteBinError> {
     if let Some(BytesSize::Fixed(size)) = size {
         if *size * 8 != out.len() {

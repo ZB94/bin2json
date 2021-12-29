@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use deku::bitvec::{BitVec, BitView, Msb0};
+use deku::bitvec::{BitVec, Msb0};
 use deku::ctx::{Limit, Size};
 use deku::DekuRead;
 use serde_json::{Map, Value};
@@ -16,79 +16,34 @@ pub fn write_struct(
     object: &Map<String, Value>,
 ) -> Result<BitVec<Msb0, u8>, WriteBinError> {
     let mut result = Vec::with_capacity(fields.len());
-    let mut ret_cap = 0;
 
     for Field { name, ty } in fields {
-        let value = match (ty, object.get(name)) {
-            (Type::Checksum { .. }, _) => {
-                result.push((name, ty, None));
-                continue;
+        match (ty, object.get(name)) {
+            (Type::Checksum { .. }, _) => result.push((name, ty, None)),
+            (Type::Encrypt { inner_type, on_write, size, .. }, value) => {
+                let v = write_normal_field(inner_type, value, object, &mut result)?;
+                let v = if let Some(data) = v {
+                    let data = on_write.encrypt(data)?;
+                    check_size(size, &data)?;
+
+                    if let Some(BytesSize::By(by) | BytesSize::Enum { by, .. }) = size {
+                        set_by_value(&mut result, ty, &data, by)?;
+                    }
+
+                    Some(data)
+                } else {
+                    None
+                };
+                result.push((name, ty, v));
             }
-            (Type::Magic { magic }, _) => {
-                result.push((name, ty, Some(magic.view_bits().to_bitvec())));
-                continue;
+            (_, value) => {
+                let v = write_normal_field(ty, value, object, &mut result)?;
+                result.push((name, ty, v));
             }
-            (_, None | Some(Value::Null)) => {
-                result.push((name, ty, None));
-                continue;
-            }
-            (_, Some(value)) => value
         };
-
-        let bits = if let Type::Enum { by, map, size } = ty {
-            let key = object.get(by)
-                .ok_or(WriteBinError::MissField(by.clone()))?
-                .as_i64()
-                .ok_or(WriteBinError::EnumByTypeError)?;
-            let ty = map.get(&key)
-                .ok_or(WriteBinError::EnumError)?;
-            let out = ty.write(value)?;
-            check_size(size, &out)?;
-            out
-        } else {
-            let mut ty = ty.clone();
-
-            if let
-            | Type::String { size: size @ Some(BytesSize::By(_) | BytesSize::Enum { .. }) }
-            | Type::Bin { size: size @ Some(BytesSize::By(_) | BytesSize::Enum { .. }) }
-            | Type::Struct { size: size @ Some(BytesSize::By(_) | BytesSize::Enum { .. }), .. }
-            | Type::Array { size: size @ Some(BytesSize::By(_) | BytesSize::Enum { .. }), .. }
-            = &mut ty
-            {
-                *size = None;
-            }
-
-            if let Type::Array { length: length @ Some(Length::By(_)), .. } = &mut ty {
-                *length = None;
-            }
-
-            ty.write(value)?
-        };
-        ret_cap += bits.len();
-
-        if let
-        | Type::String { size: Some(BytesSize::By(by) | BytesSize::Enum { by, .. }) }
-        | Type::Bin { size: Some(BytesSize::By(by) | BytesSize::Enum { by, .. }) }
-        | Type::Struct { size: Some(BytesSize::By(by) | BytesSize::Enum { by, .. }), .. }
-        | Type::Array { size: Some(BytesSize::By(by) | BytesSize::Enum { by, .. }), .. }
-        | Type::Enum { size: Some(BytesSize::By(by) | BytesSize::Enum { by, .. }), .. }
-        = ty
-        {
-            set_by_value(&mut result, ty, &bits, by)?;
-        }
-
-        if let (
-            Type::Array { length: Some(Length::By(by)), .. },
-            Some(l)
-        ) = (ty, value.as_array()) {
-            let (ty, out) = find_by(&mut result, by)?;
-            *out = Some(ty.write(&(l.len().into()))?);
-        }
-
-        result.push((name, ty, Some(bits)));
     }
 
-    let mut ret = BitVec::with_capacity(ret_cap);
+    let mut ret = BitVec::new();
     let mut key_pos = HashMap::with_capacity(fields.len());
     for (k, ty, v) in result {
         key_pos.insert(k, ret.len());
@@ -114,6 +69,78 @@ pub fn write_struct(
     Ok(ret)
 }
 
+fn write_normal_field(
+    ty: &Type,
+    value: Option<&Value>,
+    object: &Map<String, Value>,
+    result: &mut Vec<(&String, &Type, Option<BitVec<Msb0, u8>>)>,
+) -> Result<Option<BitVec<Msb0, u8>>, WriteBinError> {
+    if let Type::Magic { .. } = ty {
+        return ty.write(value.unwrap_or(&Value::Null))
+            .map(|o| Some(o));
+    }
+
+    let value = if let Some(value) = value {
+        value
+    } else {
+        return Ok(None);
+    };
+
+    let bits = if let Type::Enum { by, map, size } = ty {
+        let key = object.get(by)
+            .ok_or(WriteBinError::MissField(by.clone()))?
+            .as_i64()
+            .ok_or(WriteBinError::EnumByTypeError)?;
+        let ty = map.get(&key)
+            .ok_or(WriteBinError::EnumError)?;
+        let out = ty.write(value)?;
+        check_size(size, &out)?;
+        out
+    } else {
+        let mut ty = ty.clone();
+
+        if let
+        | Type::String { size: size @ Some(BytesSize::By(_) | BytesSize::Enum { .. }) }
+        | Type::Bin { size: size @ Some(BytesSize::By(_) | BytesSize::Enum { .. }) }
+        | Type::Struct { size: size @ Some(BytesSize::By(_) | BytesSize::Enum { .. }), .. }
+        | Type::Array { size: size @ Some(BytesSize::By(_) | BytesSize::Enum { .. }), .. }
+        | Type::Encrypt { size: size @ Some(BytesSize::By(_) | BytesSize::Enum { .. }), .. }
+        = &mut ty
+        {
+            *size = None;
+        }
+
+        if let Type::Array { length: length @ Some(Length::By(_)), .. } = &mut ty {
+            *length = None;
+        }
+
+        ty.write(value)?
+    };
+
+    if let
+    | Type::String { size: Some(BytesSize::By(by) | BytesSize::Enum { by, .. }) }
+    | Type::Bin { size: Some(BytesSize::By(by) | BytesSize::Enum { by, .. }) }
+    | Type::Struct { size: Some(BytesSize::By(by) | BytesSize::Enum { by, .. }), .. }
+    | Type::Array { size: Some(BytesSize::By(by) | BytesSize::Enum { by, .. }), .. }
+    | Type::Enum { size: Some(BytesSize::By(by) | BytesSize::Enum { by, .. }), .. }
+    | Type::Encrypt { size: Some(BytesSize::By(by) | BytesSize::Enum { by, .. }), .. }
+    = ty
+    {
+        set_by_value(result, ty, &bits, by)?;
+    }
+
+    if let (
+        Type::Array { length: Some(Length::By(by)), .. },
+        Some(l)
+    ) = (ty, value.as_array()) {
+        let (ty, out) = find_by(result, by)?;
+        *out = Some(ty.write(&(l.len().into()))?);
+    }
+
+    Ok(Some(bits))
+}
+
+
 fn set_by_value(
     result: &mut Vec<(&String, &Type, Option<BitVec<Msb0, u8>>)>,
     ty: &Type,
@@ -130,6 +157,7 @@ fn set_by_value(
     | Type::Bin { size: Some(BytesSize::Enum { map, .. }) }
     | Type::Struct { size: Some(BytesSize::Enum { map, .. }), .. }
     | Type::Array { size: Some(BytesSize::Enum { map, .. }), .. }
+    | Type::Encrypt { size: Some(BytesSize::Enum { map, .. }), .. }
     = ty
     {
         if let Some(KeyRange::Value(k)) = map.find_key(&bytes) {

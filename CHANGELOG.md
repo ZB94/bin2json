@@ -5,6 +5,11 @@
 ### 添加
 
 - 添加`secure::{SecureKey, Hasher, SecureError}`
+- 添加`Type::Encrypt`，用于在读/写数据时对数据进行解/加密
+
+### 修改
+
+- `SecureKey`现在会对数据长度超过加/解密长度的数据进行分块加/解密
 
 ## [0.4.0] 2021-12-27
 

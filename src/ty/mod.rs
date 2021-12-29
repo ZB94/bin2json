@@ -1,4 +1,4 @@
-use deku::bitvec::{BitSlice, Msb0};
+use deku::bitvec::{BitSlice, BitView, Msb0};
 use deku::ctx::Limit;
 pub use deku::ctx::Size;
 use deku::prelude::*;
@@ -18,6 +18,7 @@ use utils::get_data_by_size;
 use crate::bitvec::BitVec;
 use crate::error::{ReadBinError, WriteBinError};
 use crate::range::KeyRangeMap;
+use crate::secure::SecureKey;
 use crate::ty::write_struct::write_struct;
 use crate::Value;
 
@@ -364,6 +365,20 @@ pub enum Type {
         #[serde(default)]
         end_key: Option<String>,
     },
+
+    /// 加密数据
+    ///
+    /// **注意:** 当本类型作为[`Type::Struct`]的一个字段时:
+    /// - `inner_type`视为与结构体的其他字段同级, 但**不包括**[`Type::Checksum`]
+    Encrypt {
+        /// 加密数据的解析类型
+        inner_type: Box<Type>,
+        /// 读取时用于解密
+        on_read: SecureKey,
+        /// 写入时用于加密
+        on_write: SecureKey,
+        size: Option<BytesSize>,
+    },
 }
 
 /// Create
@@ -469,6 +484,15 @@ impl Type {
         }
     }
 
+    pub fn encrypt(ty: Type, on_read: SecureKey, on_write: SecureKey) -> Self {
+        Self::Encrypt {
+            inner_type: Box::new(ty),
+            on_read,
+            on_write,
+            size: None,
+        }
+    }
+
     pub const fn type_name(&self) -> &'static str {
         match self {
             Type::Magic { .. } => "Magic",
@@ -490,6 +514,7 @@ impl Type {
             Type::Enum { .. } => "Enum",
             Type::Converter { .. } => "Converter",
             Type::Checksum { .. } => "Checksum",
+            Type::Encrypt { .. } => "Encrypt",
         }
     }
 }
@@ -578,6 +603,13 @@ impl Type {
             }
             Self::Converter { original_type, .. } => original_type.read(data)?,
 
+            Self::Encrypt { inner_type, size, on_read, .. } => {
+                let en_data = get_data_by_size(data, size, None)?;
+                let de_data = on_read.decrypt(en_data)?;
+                let (v, _) = inner_type.read(de_data.view_bits())?;
+                (v, &data[en_data.len()..])
+            }
+
             | Self::Enum { by, .. }
             | Self::Checksum { start_key: by, .. }
             => return Err(ReadBinError::ByKeyNotFound(by.clone())),
@@ -626,6 +658,7 @@ impl Type {
             | Type::Array { length: Some(Length::By(_)), .. }
             | Type::Enum { .. }
             | Type::Checksum { .. }
+            | Type::Encrypt { size: Some(BytesSize::By(_) | BytesSize::Enum { .. }), .. }
             => return Err(WriteBinError::ByError),
 
             Type::Magic { magic } => {
@@ -725,8 +758,16 @@ impl Type {
                 utils::check_size(size, &out)?;
                 output = out;
             }
+
             Type::Converter { original_type, .. } => {
                 output = original_type.write(value)?;
+            }
+
+            Type::Encrypt { inner_type, on_write, size, .. } => {
+                let data = inner_type.write(value)?;
+                let data = on_write.encrypt(data)?;
+                utils::check_size(size, &data)?;
+                output = data;
             }
         };
 
@@ -753,18 +794,34 @@ impl Type {
                 }
             }
             (Type::Struct { fields, .. }, Value::Object(mut map)) => {
+                fn by_enum_ty<'a>(
+                    by: &String,
+                    enum_map: &'a KeyRangeMap<Type>,
+                    map: &Map<String, Value>,
+                ) -> Result<&'a Type, evalexpr::EvalexprError> {
+                    let k = map.get(by)
+                        .ok_or(evalexpr::EvalexprError::CustomMessage(format!("未找到引用键: {}", by)))?
+                        .as_i64()
+                        .ok_or(evalexpr::EvalexprError::CustomMessage(format!("引用键({})无法转化为整数", by)))?;
+                    enum_map.get(&k)
+                        .ok_or(evalexpr::EvalexprError::CustomMessage(format!("未能找到引用键({})对应的类型({})", by, k)))
+                }
+
                 let mut rm = Map::new();
                 for Field { name, ty } in fields {
                     if let Some((k, v)) = map.remove_entry(name) {
-                        let ty = if let Type::Enum { by, map, .. } = ty {
-                            let k = rm.get(by)
-                                .ok_or(evalexpr::EvalexprError::CustomMessage(format!("未找到引用键: {}", by)))?
-                                .as_i64()
-                                .ok_or(evalexpr::EvalexprError::CustomMessage(format!("引用键({})无法转化为整数", by)))?;
-                            map.get(&k)
-                                .ok_or(evalexpr::EvalexprError::CustomMessage(format!("未能找到引用键({})对应的类型({})", by, k)))?
-                        } else {
-                            ty
+                        let ty = match ty {
+                            Type::Enum { by, map, .. } => {
+                                by_enum_ty(by, map, &rm)?
+                            }
+                            Type::Encrypt { inner_type, .. } => {
+                                if let Type::Enum { by, map, .. } = inner_type.as_ref() {
+                                    by_enum_ty(by, map, &rm)?
+                                } else {
+                                    inner_type
+                                }
+                            }
+                            _ => ty
                         };
                         rm.insert(k, ty.convert(v, is_read)?);
                     }
@@ -777,6 +834,9 @@ impl Type {
                     .map(|v| element_type.convert(v, is_read))
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(Value::Array(a))
+            }
+            (Type::Encrypt { inner_type, .. }, value) => {
+                inner_type.convert(value, is_read)
             }
             (_, value) => Ok(value),
         }

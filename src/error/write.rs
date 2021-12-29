@@ -24,4 +24,8 @@ pub enum WriteBinError {
     EvalExprError(#[from] evalexpr::EvalexprError),
     #[error("输入数据不满足校验和计算条件")]
     ChecksumError,
+    #[error("加密失败: {0}")]
+    EncryptError(String),
+    #[error("签名失败: {0}")]
+    SignError(String),
 }
