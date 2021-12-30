@@ -2,10 +2,13 @@
 
 ## Unreleased
 
+## [0.5.0] 2021.12-30
+
 ### 添加
 
 - 添加`secure::{SecureKey, Hasher, SecureError}`
 - 添加`Type::Encrypt`，用于在读/写数据时对数据进行解/加密
+- 添加`Type::Sign`，用于在读/写数据时对数据进行验证/签名
 
 ### 修改
 

@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 
 use deku::bitvec::{BitVec, Msb0};
-use deku::ctx::{Limit, Size};
-use deku::DekuRead;
 use serde_json::{Map, Value};
 
 use crate::error::WriteBinError;
@@ -15,65 +13,118 @@ pub fn write_struct(
     fields: &[Field],
     object: &Map<String, Value>,
 ) -> Result<BitVec<Msb0, u8>, WriteBinError> {
-    let mut result = Vec::with_capacity(fields.len());
+    let mut result = fields.iter()
+        .map(|Field { name, ty }| (name, (ty, None)))
+        .collect::<HashMap<_, (&Type, Option<BitVec<Msb0, u8>>)>>();
 
-    for Field { name, ty } in fields {
-        match (ty, object.get(name)) {
-            (Type::Checksum { .. }, _) => result.push((name, ty, None)),
-            (Type::Encrypt { inner_type, on_write, size, .. }, value) => {
-                let v = write_normal_field(inner_type, value, object, &mut result)?;
-                let v = if let Some(data) = v {
-                    let data = on_write.encrypt(data)?;
-                    check_size(size, &data)?;
+    // 重复原因：应对引用字段与Checksum或Sign嵌套
+    for _ in 0..2 {
+        let mut key_idx = HashMap::with_capacity(fields.len());
+        for Field { name, ty } in fields {
+            key_idx.insert(name, key_idx.len());
 
-                    if let Some(BytesSize::By(by) | BytesSize::Enum { by, .. }) = size {
-                        set_by_value(&mut result, ty, &data, by)?;
+            if result[name].1.is_some() {
+                continue;
+            }
+
+            let bits = match (ty, object.get(name)) {
+                (
+                    Type::Checksum { start_key, end_key, .. }
+                    | Type::Sign { start_key, end_key, .. },
+                    _
+                ) => {
+                    let end_key = end_key.as_ref().unwrap_or(name);
+                    let start_idx = *key_idx.get(start_key).ok_or(WriteBinError::ByError)?;
+                    let end_idx = *key_idx.get(end_key).ok_or(WriteBinError::ByError)?;
+
+                    let mut bits_size = 0;
+                    let l = fields[start_idx..end_idx].iter()
+                        .map(|Field { name, .. }| {
+                            if let Some(v) = &result[name].1 {
+                                bits_size += v.len();
+                                Ok(v)
+                            } else {
+                                Err(())
+                            }
+                        })
+                        .collect::<Result<Vec<_>, _>>();
+                    if l.is_err() {
+                        continue;
                     }
 
-                    Some(data)
-                } else {
-                    None
-                };
-                result.push((name, ty, v));
-            }
-            (_, value) => {
-                let v = write_normal_field(ty, value, object, &mut result)?;
-                result.push((name, ty, v));
-            }
-        };
+                    let mut bits = BitVec::with_capacity(bits_size);
+                    for v in l.unwrap() {
+                        bits.extend_from_bitslice(v);
+                    }
+
+                    match ty {
+                        Type::Checksum { method, .. } => {
+                            if bits.len() % 8 != 0 {
+                                return Err(WriteBinError::ChecksumError);
+                            }
+                            let bits = BitVec::from_vec(method.checksum(bits.as_raw_slice()));
+                            Some(bits)
+                        }
+                        Type::Sign { on_write, size, .. } => {
+                            let bits = on_write.sign(&bits)?;
+                            check_size(size, &bits)?;
+                            if let Some(BytesSize::By(by) | BytesSize::Enum { by, .. }) = size {
+                                set_by_value(&mut result, ty, &bits, by)?;
+                            }
+                            Some(bits)
+                        }
+                        _ => None
+                    }
+                }
+                (Type::Encrypt { inner_type, on_write, size, .. }, value) => {
+                    let v = write_normal_field(inner_type, value, object, &mut result)?;
+                    if let Some(data) = v {
+                        let data = on_write.encrypt(data)?;
+                        check_size(size, &data)?;
+
+                        if let Some(BytesSize::By(by) | BytesSize::Enum { by, .. }) = size {
+                            set_by_value(&mut result, ty, &data, by)?;
+                        }
+
+                        Some(data)
+                    } else {
+                        None
+                    }
+                }
+                (_, value) => {
+                    write_normal_field(ty, value, object, &mut result)?
+                }
+            };
+            result.entry(name)
+                .or_insert_with(|| (ty, None))
+                .1 = bits;
+        }
     }
 
-    let mut ret = BitVec::new();
-    let mut key_pos = HashMap::with_capacity(fields.len());
-    for (k, ty, v) in result {
-        key_pos.insert(k, ret.len());
-
-        if let Type::Checksum { method, start_key, end_key } = ty {
-            let end_key = end_key.as_ref().unwrap_or(k);
-            let start_pos = key_pos[start_key];
-            let end_pos = key_pos[end_key];
-            let size = end_pos - start_pos;
-            if size == 0 || size % 8 != 0 {
-                return Err(WriteBinError::ChecksumError);
+    let mut bits_size = 0;
+    let l = fields.iter()
+        .map(|Field { name, .. }| {
+            if let Some((_, Some(v))) = result.remove(name) {
+                bits_size += v.len();
+                Ok(v)
+            } else {
+                Err(WriteBinError::MissField(name.clone()))
             }
-            let (_, data) = Vec::<u8>::read(
-                &ret[start_pos..end_pos],
-                Limit::new_size(Size::Bits(size)),
-            )?;
-            let checksum = method.checksum(&data);
-            ret.extend_from_raw_slice(&checksum);
-        } else {
-            ret.append(&mut v.ok_or(WriteBinError::MissField(k.clone()))?);
-        };
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut bits = BitVec::with_capacity(bits_size);
+    for mut v in l {
+        bits.append(&mut v);
     }
-    Ok(ret)
+
+    Ok(bits)
 }
 
 fn write_normal_field(
     ty: &Type,
     value: Option<&Value>,
     object: &Map<String, Value>,
-    result: &mut Vec<(&String, &Type, Option<BitVec<Msb0, u8>>)>,
+    result: &mut HashMap<&String, (&Type, Option<BitVec<Msb0, u8>>)>,
 ) -> Result<Option<BitVec<Msb0, u8>>, WriteBinError> {
     if let Type::Magic { .. } = ty {
         return ty.write(value.unwrap_or(&Value::Null))
@@ -133,7 +184,7 @@ fn write_normal_field(
         Type::Array { length: Some(Length::By(by)), .. },
         Some(l)
     ) = (ty, value.as_array()) {
-        let (ty, out) = find_by(result, by)?;
+        let (ty, out) = result.get_mut(by).ok_or(WriteBinError::ByError)?;
         *out = Some(ty.write(&(l.len().into()))?);
     }
 
@@ -142,7 +193,7 @@ fn write_normal_field(
 
 
 fn set_by_value(
-    result: &mut Vec<(&String, &Type, Option<BitVec<Msb0, u8>>)>,
+    result: &mut HashMap<&String, (&Type, Option<BitVec<Msb0, u8>>)>,
     ty: &Type,
     bits: &BitVec<Msb0, u8>,
     by: &String,
@@ -170,17 +221,7 @@ fn set_by_value(
     };
 
 
-    let (ty, out) = find_by(result, by)?;
+    let (ty, out) = result.get_mut(by).ok_or(WriteBinError::ByError)?;
     *out = Some(ty.write(&(by_value.into()))?);
     Ok(())
-}
-
-fn find_by<'a>(result: &'a mut Vec<(&String, &Type, Option<BitVec<Msb0, u8>>)>, by: &String) -> Result<(&'a Type, &'a mut Option<BitVec<Msb0, u8>>), WriteBinError> {
-    for (name, ty, out) in result {
-        if name == &by {
-            return Ok((ty, out));
-        }
-    }
-
-    Err(WriteBinError::ByError)
 }

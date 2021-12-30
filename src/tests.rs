@@ -12,6 +12,158 @@ use crate::secure::{Hasher, SecureKey};
 use crate::ty::{BytesSize, Checksum, Endian, Field, Length, Unit};
 
 #[test]
+fn test_sign() {
+    let sk = rsa::RsaPrivateKey::new(&mut rand::rngs::OsRng, 1024).unwrap();
+    let pk = sk.to_public_key();
+    let sk_pem = sk.to_pkcs1_pem().unwrap().to_string();
+    let pk_pem = pk.to_pkcs1_pem().unwrap();
+
+    let message = Type::new_struct(vec![
+        Field::new("head", Type::magic(b"##")),
+        Field::new("command", Type::uint8()),
+        Field::new("device_id", Type::string(BytesSize::Fixed(17))),
+        Field::new("version", Type::uint8()),
+        Field::new("crypto_type", Type::uint8()),
+        Field::new("data_len", Type::uint16(Endian::Big)),
+        Field::new("data", Type::Enum {
+            by: "command".to_string(),
+            map: range_map! {
+                1 => Type::new_struct(vec![
+                    Field::new("status", Type::uint8()),
+                    Field::new("number", Type::uint16(Endian::Big)),
+                    Field::new("result", Type::BOOL),
+                    Field::new("sign_len", Type::uint16(Endian::Big)),
+                    Field::new("sign", Type::Sign {
+                        size: Some(BytesSize::new("sign_len")),
+                        start_key: "status".to_string(),
+                        end_key: Some("sign_len".to_string()),
+                        on_read: SecureKey::rsa_pkcs1_pem(&pk_pem, false, Hasher::SHA3_256),
+                        on_write: SecureKey::rsa_pkcs1_pem(&sk_pem, true, Hasher::SHA3_256),
+                    })
+                ]),
+                2 => Type::new_struct(vec![
+                    Field::new("status", Type::uint8()),
+                    Field::new("number", Type::uint16(Endian::Big)),
+                    Field::new("sign_len", Type::uint16(Endian::Big)),
+                    Field::new("sign", Type::Sign {
+                        size: Some(BytesSize::new("sign_len")),
+                        start_key: "status".to_string(),
+                        end_key: Some("sign_len".to_string()),
+                        on_read: SecureKey::rsa_pkcs1_pem(&pk_pem, false, Hasher::SHA3_256),
+                        on_write: SecureKey::rsa_pkcs1_pem(&sk_pem, true, Hasher::SHA3_256),
+                    })
+                ]),
+                3 => Type::new_struct(vec![
+                    Field::new("status", Type::uint8()),
+                    Field::new("number", Type::uint16(Endian::Big)),
+                    Field::new("sign_len", Type::uint16(Endian::Big)),
+                    Field::new("sign", Type::Sign {
+                        size: Some(BytesSize::new("sign_len")),
+                        start_key: "status".to_string(),
+                        end_key: Some("sign_len".to_string()),
+                        on_read: SecureKey::rsa_pkcs1_pem(&pk_pem, false, Hasher::SHA3_256),
+                        on_write: SecureKey::rsa_pkcs1_pem(&sk_pem, true, Hasher::SHA3_256),
+                    })
+                ]),
+                4 => Type::new_struct(vec![
+                    Field::new("status", Type::uint8()),
+                    Field::new("number", Type::uint16(Endian::Big)),
+                    Field::new("sign_len", Type::uint16(Endian::Big)),
+                    Field::new("sign", Type::Sign {
+                        size: Some(BytesSize::new("sign_len")),
+                        start_key: "status".to_string(),
+                        end_key: Some("sign_len".to_string()),
+                        on_read: SecureKey::rsa_pkcs1_pem(&pk_pem, false, Hasher::SHA3_256),
+                        on_write: SecureKey::rsa_pkcs1_pem(&sk_pem, true, Hasher::SHA3_256),
+                    })
+                ]),
+                5 => Type::new_struct(vec![
+                    Field::new("status", Type::uint8()),
+                    Field::new("year", Type::converter(Type::uint8(), "self + 2000", "self - 2000")),
+                    Field::new("month", Type::uint8()),
+                    Field::new("day", Type::uint8()),
+                    Field::new("hour", Type::uint8()),
+                    Field::new("minute", Type::uint8()),
+                    Field::new("second", Type::uint8()),
+                    Field::new("sign_len", Type::uint16(Endian::Big)),
+                    Field::new("sign", Type::Sign {
+                        size: Some(BytesSize::new("sign_len")),
+                        start_key: "status".to_string(),
+                        end_key: Some("sign_len".to_string()),
+                        on_read: SecureKey::rsa_pkcs1_pem(&pk_pem, false, Hasher::SHA3_256),
+                        on_write: SecureKey::rsa_pkcs1_pem(&sk_pem, true, Hasher::SHA3_256),
+                    })
+                ])
+            },
+            size: Some(BytesSize::new("data_len")),
+        }),
+        Field::new("check", Type::checksum(Checksum::Xor, "command")),
+    ]);
+
+    let array = Type::new_array(message);
+    let msg_list = json!([
+        {
+            "command": 1,
+            "device_id": "12345678901234501",
+            "version": 1,
+            "crypto_type": 1,
+            "data": {
+                "status": 0,
+                "number": 1,
+                "result": true
+            }
+        },
+        {
+            "command": 2,
+            "device_id": "12345678901234501",
+            "version": 1,
+            "crypto_type": 1,
+            "data": {
+                "status": 1,
+                "number": 2
+            }
+        },
+        {
+            "command": 3,
+            "device_id": "12345678901234501",
+            "version": 1,
+            "crypto_type": 1,
+            "data": {
+                "status": 0,
+                "number": 3
+            }
+        },
+        {
+            "command": 4,
+            "device_id": "12345678901234501",
+            "version": 1,
+            "crypto_type": 1,
+            "data": {
+                "status": 0,
+                "number": 4
+            }
+        },
+        {
+            "command": 5,
+            "device_id": "12345678901234501",
+            "version": 1,
+            "crypto_type": 1,
+            "data": {
+                "status": 0,
+                "year": 2021,
+                "month": 1,
+                "day": 2,
+                "hour": 3,
+                "minute": 4,
+                "second": 5
+            }
+        }
+    ]);
+    let raw = array.convert_and_write(msg_list).unwrap();
+    array.read_and_convert(&raw).unwrap();
+}
+
+#[test]
 fn test_encrypt() {
     let sk = rsa::RsaPrivateKey::new(&mut rand::rngs::OsRng, 1024).unwrap();
     let pk = sk.to_public_key();

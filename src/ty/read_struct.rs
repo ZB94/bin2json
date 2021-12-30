@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use deku::bitvec::{BitSlice, BitView, Msb0};
+use deku::bitvec::{BitSlice, Msb0};
 use deku::ctx::{Limit, Size};
 use deku::DekuRead;
 use serde_json::Map;
@@ -30,17 +30,12 @@ pub fn read_struct<'a>(
 
                 // 获取要计算校验和的数据
                 let end_key = end_key.as_ref().unwrap_or(name);
-                let start_pos = *key_pos.get(start_key)
-                    .ok_or(ReadBinError::ByKeyNotFound(start_key.clone()))?;
-                let end_pos = *key_pos.get(end_key)
-                    .ok_or(ReadBinError::ByKeyNotFound(end_key.clone()))?;
-                let size = end_pos - start_pos;
-                if size == 0 || size % 8 != 0 {
-                    return Err(ReadBinError::ChecksumError);
-                }
-                let (_, checksum_data) = Vec::<u8>::read(
-                    &src[start_pos..end_pos],
-                    Limit::new_size(Size::Bits(size)),
+                let checksum_data = read_sub_data(
+                    start_key,
+                    end_key,
+                    &key_pos,
+                    src,
+                    ReadBinError::ChecksumError,
                 )?;
 
                 // 检查校验和
@@ -51,10 +46,32 @@ pub fn read_struct<'a>(
                     return Err(ReadBinError::ChecksumError);
                 }
             }
+            Type::Sign { start_key, end_key, on_read, size, .. } => {
+                let signed_data = get_data_by_size(data, size, Some(&ret))?;
+                if signed_data.len() % 8 != 0 {
+                    return Err(ReadBinError::VerifyError(format!("已签名数据必须全部为完整字节")));
+                }
+                let (_, sd) = Vec::<u8>::read(
+                    signed_data,
+                    Limit::new_size(Size::Bits(signed_data.len())),
+                )?;
+
+                let end_key = end_key.as_ref().unwrap_or(name);
+                let sign_data = read_sub_data(
+                    start_key,
+                    end_key,
+                    &key_pos,
+                    src,
+                    ReadBinError::VerifyError(format!("待验证数据必须全部为完整字节")),
+                )?;
+                on_read.verify(&sign_data, &sd)?;
+                ret.insert(name.clone(), sd.into());
+                &data[signed_data.len()..]
+            }
             Type::Encrypt { inner_type, on_read, size, .. } => {
                 let en_data = get_data_by_size(data, size, Some(&ret))?;
                 let de_data = on_read.decrypt(en_data)?;
-                read_normal_field(name, inner_type, de_data.view_bits(), &mut ret)?;
+                read_normal_field(name, inner_type, &de_data, &mut ret)?;
                 &data[en_data.len()..]
             }
             _ => read_normal_field(name, ty, data, &mut ret)?,
@@ -63,7 +80,6 @@ pub fn read_struct<'a>(
 
     Ok((Value::Object(ret), &src[data_len - data.len()..]))
 }
-
 
 fn read_normal_field<'a>(
     name: &String,
@@ -116,4 +132,29 @@ fn read_normal_field<'a>(
     } else {
         Ok(&data[d.len() - d2.len()..])
     }
+}
+
+pub fn read_sub_data(
+    start_key: &String,
+    end_key: &String,
+    key_pos: &HashMap<&String, usize>,
+    src: &BitSlice<Msb0, u8>,
+    on_size_error: ReadBinError,
+) -> Result<Vec<u8>, ReadBinError> {
+    let start_pos = *key_pos.get(start_key)
+        .ok_or(ReadBinError::ByKeyNotFound(start_key.clone()))?;
+    let end_pos = *key_pos.get(end_key)
+        .ok_or(ReadBinError::ByKeyNotFound(end_key.clone()))?;
+
+    let size = end_pos - start_pos;
+    if size == 0 || size % 8 != 0 {
+        return Err(on_size_error);
+    }
+
+    let (_, data) = Vec::<u8>::read(
+        &src[start_pos..end_pos],
+        Limit::new_size(Size::Bits(size)),
+    )?;
+
+    Ok(data)
 }

@@ -13,6 +13,14 @@ const UNSUPPORTED: &'static str = "不支持该操作";
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "format")]
 pub enum SecureKey {
+    /// 不进行加密
+    /// - 加解密时返回原始数据
+    /// - 签名结果始终为空
+    /// - 验证结果始终为通过
+    None,
+    /// RSA加密
+    /// - 公/私钥格式为PKCS1 PEM
+    /// - 加/解密时Padding为`PKCS1v15`
     RsaPkcs1Pem {
         /// 是否为私钥
         secure_key: bool,
@@ -36,11 +44,12 @@ impl SecureKey {
 
 impl SecureKey {
     pub fn encrypt(&self, data: BitVec<Msb0, u8>) -> Result<BitVec<Msb0, u8>, WriteBinError> {
-        if data.len() % 8 != 0 {
-            return Err(WriteBinError::EncryptError(format!("加密数据必须全部为完整字节")));
-        }
         match self {
+            Self::None => Ok(data),
             Self::RsaPkcs1Pem { secure_key: false, key, .. } => {
+                if data.len() % 8 != 0 {
+                    return Err(WriteBinError::EncryptError(format!("加密数据必须全部为完整字节")));
+                }
                 let pk = RsaPublicKey::from_pkcs1_pem(key)
                     .map_err(|e| WriteBinError::EncryptError(e.to_string()))?;
 
@@ -62,26 +71,33 @@ impl SecureKey {
     }
 
 
-    pub fn sign(&self, data: &[u8]) -> Result<Vec<u8>, WriteBinError> {
+    pub fn sign(&self, data: &BitVec<Msb0, u8>) -> Result<BitVec<Msb0, u8>, WriteBinError> {
         match self {
+            Self::None => Ok(BitVec::new()),
             Self::RsaPkcs1Pem { secure_key: true, key, hasher } => {
+                if data.len() % 8 != 0 {
+                    return Err(WriteBinError::SignError(format!("签名数据必须全部为完整字节")));
+                }
                 let key = RsaPrivateKey::from_pkcs1_pem(key)
                     .map_err(|e| WriteBinError::SignError(e.to_string()))?;
-                let data = hasher.hash(data);
+                let data = hasher.hash(data.as_raw_slice());
                 let padding = PaddingScheme::PKCS1v15Sign { hash: hasher.as_ras_hash() };
 
                 key.sign(padding, &data)
+                    .map(|d| BitVec::from_vec(d))
                     .map_err(|e| WriteBinError::SignError(e.to_string()))
             }
             _ => Err(WriteBinError::SignError(UNSUPPORTED.to_string()))
         }
     }
 
-    pub fn decrypt(&self, data: &BitSlice<Msb0, u8>) -> Result<Vec<u8>, ReadBinError> {
-        assert_eq!(data.len() % 8, 0, "解密数据必须全部为完整字节");
-        let (_, data) = Vec::<u8>::read(data, Limit::new_size(Size::Bits(data.len())))?;
+    pub fn decrypt(&self, data: &BitSlice<Msb0, u8>) -> Result<BitVec<Msb0, u8>, ReadBinError> {
         match self {
+            Self::None => Ok(data.to_bitvec()),
             Self::RsaPkcs1Pem { secure_key: true, key, .. } => {
+                assert_eq!(data.len() % 8, 0, "解密数据必须全部为完整字节");
+                let (_, data) = Vec::<u8>::read(data, Limit::new_size(Size::Bits(data.len())))?;
+
                 let sk = RsaPrivateKey::from_pkcs1_pem(key)
                     .map_err(|e| ReadBinError::DecryptError(e.to_string()))?;
                 let mut ret = Vec::with_capacity(data.len() / sk.size() * (sk.size() - 11));
@@ -91,14 +107,15 @@ impl SecureKey {
                         .map_err(|e| ReadBinError::DecryptError(e.to_string()))?;
                     ret.append(&mut de_data);
                 }
-                Ok(ret)
+                Ok(BitVec::from_vec(ret))
             }
             _ => Err(ReadBinError::DecryptError(UNSUPPORTED.to_string()))
         }
     }
 
-    pub fn verify(&self, data: &[u8], signed_data: &[u8]) -> Result<bool, ReadBinError> {
+    pub fn verify(&self, data: &[u8], signed_data: &[u8]) -> Result<(), ReadBinError> {
         match self {
+            Self::None => Ok(()),
             Self::RsaPkcs1Pem { secure_key: false, key, hasher } => {
                 let key = RsaPublicKey::from_pkcs1_pem(key)
                     .map_err(|e| ReadBinError::VerifyError(e.to_string()))?;
@@ -106,16 +123,16 @@ impl SecureKey {
                 let padding = PaddingScheme::PKCS1v15Sign { hash: hasher.as_ras_hash() };
 
                 key.verify(padding, &data, signed_data)
-                    .map(|_| true)
-                    .or_else(|e| {
-                        match e {
-                            rsa::errors::Error::Verification => Ok(false),
-                            _ => Err(ReadBinError::VerifyError(e.to_string()))
-                        }
-                    })
+                    .map_err(|e| ReadBinError::VerifyError(e.to_string()))
             }
             _ => Err(ReadBinError::VerifyError(UNSUPPORTED.to_string()))
         }
+    }
+}
+
+impl Default for SecureKey {
+    fn default() -> Self {
+        Self::None
     }
 }
 

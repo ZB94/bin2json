@@ -1,4 +1,4 @@
-use deku::bitvec::{BitSlice, BitView, Msb0};
+use deku::bitvec::{BitSlice, Msb0};
 use deku::ctx::Limit;
 pub use deku::ctx::Size;
 use deku::prelude::*;
@@ -374,9 +374,30 @@ pub enum Type {
         /// 加密数据的解析类型
         inner_type: Box<Type>,
         /// 读取时用于解密
+        #[serde(default)]
         on_read: SecureKey,
         /// 写入时用于加密
+        #[serde(default)]
         on_write: SecureKey,
+        size: Option<BytesSize>,
+    },
+
+    /// 数据签名
+    ///
+    /// **注意：** 该类型必须定义于结构体之中
+    Sign {
+        /// 读取时用于验证签名
+        #[serde(default)]
+        on_read: SecureKey,
+        /// 写入时用于对数据进行签名
+        #[serde(default)]
+        on_write: SecureKey,
+        /// 校验数据的起始字段名称
+        start_key: String,
+        /// 校验数据的结束字段名称（计算的数据到该字段之前，不包含该字段的数据）。默认值为本字段
+        #[serde(default)]
+        end_key: Option<String>,
+        #[serde(default)]
         size: Option<BytesSize>,
     },
 }
@@ -493,6 +514,16 @@ impl Type {
         }
     }
 
+    pub fn sign<S: Into<String>>(start_key: S, on_read: SecureKey, on_write: SecureKey) -> Self {
+        Self::Sign {
+            on_read,
+            on_write,
+            start_key: start_key.into(),
+            end_key: None,
+            size: None,
+        }
+    }
+
     pub const fn type_name(&self) -> &'static str {
         match self {
             Type::Magic { .. } => "Magic",
@@ -515,6 +546,7 @@ impl Type {
             Type::Converter { .. } => "Converter",
             Type::Checksum { .. } => "Checksum",
             Type::Encrypt { .. } => "Encrypt",
+            Type::Sign { .. } => "Sign",
         }
     }
 }
@@ -606,12 +638,13 @@ impl Type {
             Self::Encrypt { inner_type, size, on_read, .. } => {
                 let en_data = get_data_by_size(data, size, None)?;
                 let de_data = on_read.decrypt(en_data)?;
-                let (v, _) = inner_type.read(de_data.view_bits())?;
+                let (v, _) = inner_type.read(&de_data)?;
                 (v, &data[en_data.len()..])
             }
 
             | Self::Enum { by, .. }
             | Self::Checksum { start_key: by, .. }
+            | Self::Sign { start_key: by, .. }
             => return Err(ReadBinError::ByKeyNotFound(by.clone())),
         };
         Ok((value, data))
@@ -659,6 +692,7 @@ impl Type {
             | Type::Enum { .. }
             | Type::Checksum { .. }
             | Type::Encrypt { size: Some(BytesSize::By(_) | BytesSize::Enum { .. }), .. }
+            | Type::Sign { .. }
             => return Err(WriteBinError::ByError),
 
             Type::Magic { magic } => {
