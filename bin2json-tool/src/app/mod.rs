@@ -13,7 +13,7 @@ pub struct Application {
 impl Default for Application {
     fn default() -> Self {
         Self {
-            ty: TypeUi::new(),
+            ty: TypeUi::new("application"),
         }
     }
 }
