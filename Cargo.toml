@@ -4,6 +4,10 @@ version = "0.5.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[workspace]
+members = [
+    "bin2json-tool"
+]
 
 [dependencies]
 thiserror = "1.0.30"
