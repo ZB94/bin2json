@@ -332,7 +332,38 @@ impl TypeUi {
                         ui.end_row();
                         *original_type = Box::new(self.temp_fields[0].1.ty.clone());
                     }
-                    Type::Checksum { .. } => {}
+
+                    Type::Checksum {
+                        method,
+                        start_key,
+                        end_key,
+                    } => {
+                        ui.label("计算方法");
+                        egui::ComboBox::from_id_source(format!("{} > CheckSum ComboBox", &self.ident))
+                            .selected_text("异或")
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(method, Checksum::Xor, "异或");
+                            });
+                        ui.end_row();
+
+                        ui.label("开始字段");
+                        ui.text_edit_singleline(start_key);
+                        ui.end_row();
+
+                        ui.label("停止字段").on_hover_text("未设置则为该类型对应的字段");
+                        ui.horizontal_top(|ui| {
+                            let mut checked = end_key.is_some();
+                            ui.checkbox(&mut checked, "");
+                            if checked != end_key.is_some() {
+                                *end_key = if checked { Some(Default::default()) } else { None };
+                            }
+                            if let Some(s) = end_key {
+                                ui.text_edit_singleline(s);
+                            }
+                        });
+                        ui.end_row();
+                    }
+
                     Type::Encrypt { .. } => {}
                     Type::Sign { .. } => {}
                 }
