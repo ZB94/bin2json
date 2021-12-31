@@ -10,6 +10,7 @@ pub use converter_ui::ConverterUi;
 pub use endian_ui::EndianUi;
 pub use length_ui::LengthUi;
 pub use raw_edit_ui::RawEditUi;
+pub use secure_key_ui::SecureKeyUi;
 pub use size_ui::SizeUi;
 
 mod size_ui;
@@ -18,6 +19,7 @@ mod bytes_size_ui;
 mod raw_edit_ui;
 mod length_ui;
 mod converter_ui;
+mod secure_key_ui;
 
 #[derive(Clone)]
 pub struct TypeUi {
@@ -32,6 +34,20 @@ pub struct TypeUi {
     temp_fields: Vec<(String, TypeUi)>,
 
     temp_enum_error: String,
+}
+
+macro_rules! last_field {
+    ($self: ident) => {{
+        if $self.temp_fields.is_empty() {
+            $self.temp_fields.push((
+                Default::default(),
+                TypeUi::new(format!("{} > last field", &$self.ident))
+            ));
+        }
+        let last_idx = $self.temp_fields.len() - 1;
+        let r: &mut (String, TypeUi) = &mut $self.temp_fields[last_idx];
+        r
+    }};
 }
 
 impl TypeUi {
@@ -50,21 +66,20 @@ impl TypeUi {
     }
 
     pub fn ui(&mut self, ui: &mut Ui) -> Response {
-        let ty = &mut self.ty;
         egui::Grid::new(&self.ident)
             .spacing([5.0, 20.0])
             .striped(true)
             .show(ui, |ui| {
                 ui.label("类型");
                 egui::ComboBox::from_id_source(format!("{} > type combox", &self.ident))
-                    .selected_text(ty.type_name())
+                    .selected_text(self.ty.type_name())
                     .show_ui(ui, |ui| {
-                        let old_ty = ty.type_name();
+                        let old_ty = self.ty.type_name();
                         for t in default_types() {
                             let name = t.type_name();
-                            ui.selectable_value(ty, t, name);
+                            ui.selectable_value(&mut self.ty, t, name);
                         }
-                        if ty.type_name() != old_ty {
+                        if self.ty.type_name() != old_ty {
                             self.temp_bs_enum_key = Default::default();
                             self.temp_bs_enum_value = 0;
                             self.temp_bs_error = Default::default();
@@ -77,7 +92,7 @@ impl TypeUi {
                     });
                 ui.end_row();
 
-                match ty {
+                match &mut self.ty {
                     Type::Magic { magic } => {
                         ui.label("魔法值");
                         ui.add(RawEditUi::new(magic, false));
@@ -192,12 +207,9 @@ impl TypeUi {
                         ui.add(LengthUi(length));
                         ui.end_row();
 
-                        if self.temp_fields.is_empty() {
-                            self.temp_fields.push((Default::default(), TypeUi::new(format!("{} > ArrayType", &self.ident))));
-                        }
                         ui.label("成员类型");
                         ui.vertical(|ui| {
-                            let ty_ui = &mut self.temp_fields[0].1;
+                            let (_, ty_ui) = last_field!(self);
                             ty_ui.ui(ui);
                             *element_type = Box::new(ty_ui.ty.clone());
                         });
@@ -321,16 +333,11 @@ impl TypeUi {
                         ui.add(ConverterUi(on_write));
                         ui.end_row();
 
-                        if self.temp_fields.is_empty() {
-                            self.temp_fields.push((
-                                Default::default(),
-                                TypeUi::new(format!("{} > Converter", &self.ident))
-                            ));
-                        }
+                        let (_, ty_ui) = last_field!(self);
                         ui.label("原始类型");
-                        ui.horizontal_top(|ui| self.temp_fields[0].1.ui(ui));
+                        ui.horizontal_top(|ui| ty_ui.ui(ui));
                         ui.end_row();
-                        *original_type = Box::new(self.temp_fields[0].1.ty.clone());
+                        *original_type = Box::new(ty_ui.ty.clone());
                     }
 
                     Type::Checksum {
@@ -364,8 +371,76 @@ impl TypeUi {
                         ui.end_row();
                     }
 
-                    Type::Encrypt { .. } => {}
-                    Type::Sign { .. } => {}
+                    Type::Encrypt {
+                        inner_type,
+                        on_read,
+                        on_write,
+                        size,
+                    } => {
+                        ui.label("解密方式");
+                        ui.add(SecureKeyUi(on_read, format!("{} > Encrypt > on_read", &self.ident), false));
+                        ui.end_row();
+
+                        ui.label("加密方式");
+                        ui.add(SecureKeyUi(on_write, format!("{} > Encrypt > on_write", &self.ident), false));
+                        ui.end_row();
+
+                        ui.label("大小");
+                        ui.add(BytesSizeUi::new(
+                            size,
+                            &mut self.temp_bs_enum_key,
+                            &mut self.temp_bs_enum_value,
+                            &mut self.temp_bs_error,
+                        ));
+                        ui.end_row();
+
+                        let (_, ty_ui) = last_field!(self);
+                        ui.label("内部数据类型");
+                        ui.horizontal_top(|ui| ty_ui.ui(ui));
+                        ui.end_row();
+                        *inner_type = Box::new(ty_ui.ty.clone());
+                    }
+                    Type::Sign {
+                        on_read,
+                        on_write,
+                        start_key,
+                        end_key,
+                        size
+                    } => {
+                        ui.label("验证方式");
+                        ui.add(SecureKeyUi(on_read, format!("{} > Sign > on_read", &self.ident), true));
+                        ui.end_row();
+
+                        ui.label("签名方式");
+                        ui.add(SecureKeyUi(on_write, format!("{} > Sign > on_write", &self.ident), true));
+                        ui.end_row();
+
+                        ui.label("大小");
+                        ui.add(BytesSizeUi::new(
+                            size,
+                            &mut self.temp_bs_enum_key,
+                            &mut self.temp_bs_enum_value,
+                            &mut self.temp_bs_error,
+                        ));
+                        ui.end_row();
+
+                        ui.label("开始字段");
+                        ui.text_edit_singleline(start_key);
+                        ui.end_row();
+
+                        ui.label("停止字段").on_hover_text("未设置则为该类型对应的字段");
+                        ui.horizontal_top(|ui| {
+                            let mut checked = end_key.is_some();
+                            ui.checkbox(&mut checked, "");
+                            if checked != end_key.is_some() {
+                                *end_key = if checked { Some(Default::default()) } else { None };
+                            }
+                            if let Some(s) = end_key {
+                                ui.text_edit_singleline(s);
+                            }
+                        });
+                        ui.end_row();
+                    }
                 }
             })
             .response
