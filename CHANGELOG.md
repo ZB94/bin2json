@@ -4,7 +4,7 @@
 
 ### 修改
 
-- `KeyRangeMap`添加`into_iter`, `retain`, `remove`方法
+- `KeyRangeMap`添加`into_iter`, `retain`, `remove`, `claer`方法
 
 ## [0.5.0] 2021.12-30
 

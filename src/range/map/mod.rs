@@ -85,6 +85,12 @@ impl<V: Clone> KeyRangeMap<V> {
         }
     }
 
+    pub fn clear(&mut self) {
+        self.value_map.clear();
+        self.range_map.clear();
+        self.default = None;
+    }
+
     pub fn retain<F: FnMut(&KeyRange, &mut V) -> bool>(&mut self, mut f: F) {
         self.value_map.retain(|k, v| f(k, v));
         self.range_map.retain(|k, v| f(k, v));
