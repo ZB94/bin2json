@@ -6,6 +6,7 @@ use bin2json::range::KeyRange;
 use bin2json::secure::SecureKey;
 use bin2json::ty::{Checksum, Endian, Field};
 pub use bytes_size_ui::BytesSizeUi;
+pub use converter_ui::ConverterUi;
 pub use endian_ui::EndianUi;
 pub use length_ui::LengthUi;
 pub use raw_edit_ui::RawEditUi;
@@ -16,6 +17,7 @@ mod endian_ui;
 mod bytes_size_ui;
 mod raw_edit_ui;
 mod length_ui;
+mod converter_ui;
 
 #[derive(Clone)]
 pub struct TypeUi {
@@ -306,7 +308,30 @@ impl TypeUi {
                         ui.end_row();
                     }
 
-                    Type::Converter { .. } => {}
+                    Type::Converter {
+                        original_type,
+                        on_read,
+                        on_write,
+                    } => {
+                        ui.label("读取转换方式");
+                        ui.add(ConverterUi(on_read));
+                        ui.end_row();
+
+                        ui.label("写入转换方式");
+                        ui.add(ConverterUi(on_write));
+                        ui.end_row();
+
+                        if self.temp_fields.is_empty() {
+                            self.temp_fields.push((
+                                Default::default(),
+                                TypeUi::new(format!("{} > Converter", &self.ident))
+                            ));
+                        }
+                        ui.label("原始类型");
+                        ui.horizontal_top(|ui| self.temp_fields[0].1.ui(ui));
+                        ui.end_row();
+                        *original_type = Box::new(self.temp_fields[0].1.ty.clone());
+                    }
                     Type::Checksum { .. } => {}
                     Type::Encrypt { .. } => {}
                     Type::Sign { .. } => {}
