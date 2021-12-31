@@ -5,17 +5,7 @@ use bin2json::range::KeyRange;
 use bin2json::range_map;
 use bin2json::ty::BytesSize;
 
-use crate::app::type_ui::RawEditUi;
-
-const FORMAT: &'static str = r#"接收以下格式数据：
-- num: 指定值
-- num..: 大于或等于指定值
-- num1..num2: num1到num2之间的值（不包括num2)
-- num1..=num2: num1到num2之间的值（包括num2)
-- ..num: 小于指定值
-- ..=num: 小于等于指定值
-- ..: 所有值
-注意: 输入的数值必须是整数"#;
+use crate::app::type_ui::{KEY_RANGE_FORMAT, RawEditUi};
 
 pub struct BytesSizeUi<'a> {
     pub bs: &'a mut Option<BytesSize>,
@@ -113,7 +103,7 @@ impl Widget for BytesSizeUi<'_> {
                             });
 
                             let resp = ui.text_edit_singleline(temp_kr)
-                                .on_hover_text(FORMAT);
+                                .on_hover_text(KEY_RANGE_FORMAT);
                             if error.len() > 0 {
                                 let pid = ui.make_persistent_id("error");
                                 ui.memory().open_popup(pid);
@@ -138,7 +128,7 @@ impl Widget for BytesSizeUi<'_> {
                                         *error = Default::default();
                                     }
                                     Err(_) => {
-                                        *error = format!("输入格式错误\n{}", FORMAT);
+                                        *error = format!("输入格式错误\n{}", KEY_RANGE_FORMAT);
                                     }
                                 }
                             }
