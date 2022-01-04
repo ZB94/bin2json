@@ -6,5 +6,5 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bin2json = { path = "..", version = "0.5.0" }
+bin2json = { path = ".." }
 eframe = { version = "0.16.0", default_features = false, features = ["egui_glow"] }

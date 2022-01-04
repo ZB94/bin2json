@@ -12,6 +12,7 @@ pub struct BytesSizeUi<'a> {
     pub temp_kr: &'a mut String,
     pub temp_v: &'a mut usize,
     pub error: &'a mut String,
+    pub id: String,
 }
 
 impl<'a> BytesSizeUi<'a> {
@@ -20,22 +21,27 @@ impl<'a> BytesSizeUi<'a> {
         temp_kr: &'a mut String,
         temp_v: &'a mut usize,
         error: &'a mut String,
+        id: String,
     ) -> Self {
         Self {
             bs,
             temp_kr,
             temp_v,
             error,
+            id,
         }
     }
 }
 
 impl Widget for BytesSizeUi<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
-        let bs = self.bs;
-        let temp_kr = self.temp_kr;
-        let temp_v = self.temp_v;
-        let error = self.error;
+        let BytesSizeUi {
+            bs,
+            temp_kr,
+            temp_v,
+            error,
+            id
+        } = self;
 
         ui.vertical(|ui| {
             if ui.radio(bs.is_none(), "无限制").clicked() {
@@ -87,7 +93,7 @@ impl Widget for BytesSizeUi<'_> {
                     });
 
                     ui.separator();
-                    egui::Grid::new("bytes size enum")
+                    egui::Grid::new(format!("{} > bytes size enum", id))
                         .show(ui, |ui| {
                             ui.label("引用字段值");
                             ui.label("大小");
