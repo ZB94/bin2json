@@ -82,7 +82,7 @@ let data = [
     3, 2, 1,
 ];
 
-let (msg, d) = message.read_and_convert(data.view_bits()).unwrap();
+let (msg, d) = message.read(data.view_bits()).unwrap();
 assert_eq!(
 	serde_json::json!({
         "head": [1, 2, 3],
@@ -100,7 +100,7 @@ assert_eq!(
     msg
 );
 assert_eq!([0u8; 0].view_bits::<Msb0>(), d);
-assert_eq!(data, message.convert_and_write(msg).unwrap().as_raw_slice());
+assert_eq!(data, message.write(&msg).unwrap().as_raw_slice());
 
 let msg = serde_json::json!({
     "field": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
@@ -111,7 +111,7 @@ let msg = serde_json::json!({
         { "ty": 4, "value": 2 }
     ]
 });
-assert_eq!(data.view_bits::<Msb0>(), message.convert_and_write(msg).unwrap());
+assert_eq!(data.view_bits::<Msb0>(), message.write(&msg).unwrap());
 ```
 
 ### 数值转换和校验示例
@@ -136,17 +136,17 @@ let ty: Type = serde_json::from_str(r#"{
 }"#).unwrap();
 
 // 读
-assert_eq!(serde_json::json!(2000), ty.read_and_convert(200u32.to_be_bytes().view_bits::<Msb0>()).unwrap().0);
+assert_eq!(serde_json::json!(2000), ty.read(200u32.to_be_bytes().view_bits::<Msb0>()).unwrap().0);
 // before error
-assert!(ty.read_and_convert(100u32.to_be_bytes().view_bits::<Msb0>()).is_err());
+assert!(ty.read(100u32.to_be_bytes().view_bits::<Msb0>()).is_err());
 // after error
-assert!(ty.read_and_convert(500u32.to_be_bytes().view_bits::<Msb0>()).is_err());
+assert!(ty.read(500u32.to_be_bytes().view_bits::<Msb0>()).is_err());
 
 // 写
-assert_eq!(200u32.to_be_bytes().view_bits::<Msb0>(), ty.convert_and_write(serde_json::json!(2000)).unwrap());
+assert_eq!(200u32.to_be_bytes().view_bits::<Msb0>(), ty.write(&serde_json::json!(2000)).unwrap());
 // before error
-assert!(ty.convert_and_write(serde_json::json!(5000)).is_err());
+assert!(ty.write(&serde_json::json!(5000)).is_err());
 // after error
-assert!(ty.convert_and_write(serde_json::json!(1000)).is_err());
+assert!(ty.write(&serde_json::json!(1000)).is_err());
 ```
 

@@ -633,7 +633,11 @@ impl Type {
             Self::Array { element_type: ty, size, length } => {
                 read_array(ty, length, size, data)?
             }
-            Self::Converter { original_type, .. } => original_type.read(data)?,
+            Self::Converter { original_type, .. } => {
+                let (value, d) = original_type.read(data)?;
+                let value = self.convert(&value, true)?;
+                (value, d)
+            }
 
             Self::Encrypt { inner_type, size, on_read, .. } => {
                 let en_data = get_data_by_size(data, size, None)?;
@@ -648,13 +652,6 @@ impl Type {
             => return Err(ReadBinError::ByKeyNotFound(by.clone())),
         };
         Ok((value, data))
-    }
-
-    /// 尝试从数据流中读取符合定义的JSON值并应用[`Type::Converter`]中的`on_read`表达式
-    pub fn read_and_convert<'a>(&self, data: &'a BitSlice<Msb0, u8>) -> Result<(Value, &'a BitSlice<Msb0, u8>), ReadBinError> {
-        let (v, d) = self.read(data)?;
-        let v = self.convert(v, true)?;
-        Ok((v, d))
     }
 }
 
@@ -794,7 +791,8 @@ impl Type {
             }
 
             Type::Converter { original_type, .. } => {
-                output = original_type.write(value)?;
+                let value = self.convert(value, false)?;
+                output = original_type.write(&value)?;
             }
 
             Type::Encrypt { inner_type, on_write, size, .. } => {
@@ -807,18 +805,13 @@ impl Type {
 
         Ok(output)
     }
-
-    /// 对输入数据应用[`Type::Converter`]中的`on_write`表达式，并将应用后的数据写到数据流中
-    pub fn convert_and_write(&self, value: serde_json::Value) -> Result<BitVec<Msb0, u8>, WriteBinError> {
-        let value = self.convert(value, false)?;
-        self.write(&value)
-    }
 }
 
 /// Convert
 impl Type {
     /// 如果类型为[`Type::Converter`]，则将输入值作为变量执行设置的表达式，并返回表达式执行的结果，否则返回输入值
-    pub fn convert(&self, value: Value, is_read: bool) -> Result<Value, evalexpr::EvalexprError> {
+    pub fn convert(&self, value: &Value, is_read: bool) -> Result<Value, evalexpr::EvalexprError> {
+        let value = value.clone();
         match (self, value) {
             (Type::Converter { on_read, on_write, .. }, value) => {
                 if is_read {
@@ -832,9 +825,18 @@ impl Type {
                     by: &String,
                     enum_map: &'a KeyRangeMap<Type>,
                     map: &Map<String, Value>,
+                    fields: &[Field],
+                    is_read: bool,
                 ) -> Result<&'a Type, evalexpr::EvalexprError> {
                     let k = map.get(by)
                         .ok_or(evalexpr::EvalexprError::CustomMessage(format!("未找到引用键: {}", by)))?
+                        .clone();
+                    let k = fields.iter()
+                        .find(|Field { name, .. }| name == by)
+                        .ok_or(evalexpr::EvalexprError::CustomMessage(format!("未找到引用键的类型定义: {}", by)))?
+                        .ty
+                        .convert(&k, is_read)
+                        .map_err(|e| evalexpr::EvalexprError::CustomMessage(format!("{}", e)))?
                         .as_i64()
                         .ok_or(evalexpr::EvalexprError::CustomMessage(format!("引用键({})无法转化为整数", by)))?;
                     enum_map.get(&k)
@@ -846,31 +848,31 @@ impl Type {
                     if let Some((k, v)) = map.remove_entry(name) {
                         let ty = match ty {
                             Type::Enum { by, map, .. } => {
-                                by_enum_ty(by, map, &rm)?
+                                by_enum_ty(by, map, &rm, fields, is_read)?
                             }
                             Type::Encrypt { inner_type, .. } => {
                                 if let Type::Enum { by, map, .. } = inner_type.as_ref() {
-                                    by_enum_ty(by, map, &rm)?
+                                    by_enum_ty(by, map, &rm, fields, is_read)?
                                 } else {
                                     inner_type
                                 }
                             }
                             _ => ty
                         };
-                        rm.insert(k, ty.convert(v, is_read)?);
+                        rm.insert(k, ty.convert(&v, is_read)?);
                     }
                 }
                 rm.append(&mut map);
                 Ok(Value::Object(rm))
             }
             (Type::Array { element_type, .. }, Value::Array(array)) => {
-                let a = array.into_iter()
+                let a = array.iter()
                     .map(|v| element_type.convert(v, is_read))
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(Value::Array(a))
             }
             (Type::Encrypt { inner_type, .. }, value) => {
-                inner_type.convert(value, is_read)
+                inner_type.convert(&value, is_read)
             }
             (_, value) => Ok(value),
         }

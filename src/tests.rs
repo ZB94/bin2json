@@ -12,6 +12,33 @@ use crate::secure::{Hasher, SecureKey};
 use crate::ty::{BytesSize, Checksum, Endian, Field, Length, Unit};
 
 #[test]
+fn test_convert_enum() {
+    let ty = Type::new_struct(vec![
+        Field::new("head", Type::magic(&[0x21])),
+        Field::new("cmd", Type::uint8()),
+        Field::new("data_len", Type::converter(Type::uint8(), "self - 3", "self + 3")),
+        Field::new("data", Type::Enum {
+            size: Some(BytesSize::new("data_len")),
+            by: "cmd".to_string(),
+            map: range_map! {
+                0x50 => Type::magic(&[])
+            },
+        }),
+        Field::new("checksum", Type::checksum(Checksum::Complement, "head")),
+    ]);
+
+    let data = [0x21u8, 0x50, 0x03, 0x8C];
+    let r = ty.read(data.view_bits()).unwrap().0;
+    assert_eq!(json!({
+        "head": [0x21],
+        "cmd": 0x50,
+        "data_len": 0,
+        "data": [],
+        "checksum": [0x8c]
+    }), r);
+}
+
+#[test]
 fn test_sign() {
     let sk = rsa::RsaPrivateKey::new(&mut rand::rngs::OsRng, 1024).unwrap();
     let pk = sk.to_public_key();
@@ -159,8 +186,8 @@ fn test_sign() {
             }
         }
     ]);
-    let raw = array.convert_and_write(msg_list).unwrap();
-    array.read_and_convert(&raw).unwrap();
+    let raw = array.write(&msg_list).unwrap();
+    array.read(&raw).unwrap();
 }
 
 #[test]
@@ -412,7 +439,7 @@ fn test_read_write() {
         49, 50, 51, 52, 53, 54, 55, 57, 56, 48,
         30
     ];
-    let (msg, _) = message.read_and_convert(login.view_bits()).unwrap();
+    let (msg, _) = message.read(login.view_bits()).unwrap();
     assert_eq!(msg, json!({
         "head": b"##",
         "command": 1,
@@ -427,8 +454,8 @@ fn test_read_write() {
         },
         "check": [30]
     }));
-    assert_eq!(message.convert_and_write(msg).unwrap().as_raw_slice(), login);
-    assert_eq!(message.convert_and_write(json!({
+    assert_eq!(message.write(&msg).unwrap().as_raw_slice(), login);
+    assert_eq!(message.write(&json!({
         "command": 1,
         "device_id": "12345678901234501",
         "version": 1,
@@ -490,7 +517,7 @@ fn test_read_write() {
         184
     ];
 
-    let (msg, _) = message.read_and_convert(info.view_bits()).unwrap();
+    let (msg, _) = message.read(info.view_bits()).unwrap();
     assert_eq!(msg, json!({
         "head": b"##",
         "command": 2,
@@ -556,8 +583,8 @@ fn test_read_write() {
         },
         "check": [184]
     }));
-    assert_eq!(message.convert_and_write(msg).unwrap().as_raw_slice(), info);
-    assert_eq!(message.convert_and_write(json!({
+    assert_eq!(message.write(&msg).unwrap().as_raw_slice(), info);
+    assert_eq!(message.write(&json!({
         "command": 2,
         "device_id": "12345678901234501",
         "version": 1,
@@ -737,10 +764,10 @@ fn test_read_write_encrypt() {
         "check": [check]
     });
 
-    let (msg, d) = message.read_and_convert(login.view_bits()).unwrap();
+    let (msg, d) = message.read(login.view_bits()).unwrap();
     assert_eq!(d.len(), 0);
     assert_eq!(login_msg, msg);
-    let data = message.convert_and_write(json!({
+    let data = message.write(&json!({
         "command": 1,
         "device_id": "12345678901234501",
         "version": 1,
@@ -751,7 +778,7 @@ fn test_read_write_encrypt() {
             "sim_id": "12345678901234567980"
         }
     })).unwrap();
-    let (msg, _) = message.read_and_convert(&data).unwrap();
+    let (msg, _) = message.read(&data).unwrap();
     assert_eq!(login_msg["command"], msg["command"]);
     assert_eq!(login_msg["device_id"], msg["device_id"]);
     assert_eq!(login_msg["version"], msg["version"]);
@@ -887,7 +914,7 @@ fn test_read_write_encrypt() {
         },
         "check": [check]
     });
-    let (msg, d) = message.read_and_convert(info.view_bits()).unwrap();
+    let (msg, d) = message.read(info.view_bits()).unwrap();
     assert_eq!(d.len(), 0);
     assert_eq!(info_msg, msg);
 
@@ -953,8 +980,8 @@ fn test_read_write_encrypt() {
         }
     });
 
-    let data = message.convert_and_write(msg).unwrap();
-    let (msg, _) = message.read_and_convert(&data).unwrap();
+    let data = message.write(&msg).unwrap();
+    let (msg, _) = message.read(&data).unwrap();
     assert_eq!(info_msg["command"], msg["command"]);
     assert_eq!(info_msg["device_id"], msg["device_id"]);
     assert_eq!(info_msg["version"], msg["version"]);
