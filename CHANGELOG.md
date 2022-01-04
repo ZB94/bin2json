@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.6.0] 2022.01.04
+
 ### 添加
 
 - `Checksum`添加枚举值`Complement`
