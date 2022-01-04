@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### 添加
+
+- `Checksum`添加枚举值`Complement`
+
+### 修改
+
+- `KeyRangeMap`添加`into_iter`, `retain`, `remove`, `claer`方法
+
+### 删除
+
+- 现在`Type::read`方法与`Type::read_and_convert`结果一致，所以移除`Type::read_and_convert`方法
+- 现在`Type::write`方法与`Type::convert_and_write`结果一致，所以移除`Type::convert_and_write`方法
+
 ## [0.5.0] 2021.12-30
 
 ### 添加

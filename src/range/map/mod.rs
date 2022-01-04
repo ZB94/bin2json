@@ -1,7 +1,13 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 
+pub use into_iter::IntoIter;
+pub use iter::Iter;
+
 use super::KeyRange;
+
+mod iter;
+mod into_iter;
 
 /// 快速创建[`KeyRangeMap`]
 ///
@@ -30,7 +36,7 @@ use super::KeyRange;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(into = "HashMap<KeyRange, V>", from = "HashMap<KeyRange, V>")]
 pub struct KeyRangeMap<V: Clone> {
-    value_map: HashMap<i64, V>,
+    value_map: HashMap<KeyRange, V>,
     range_map: HashMap<KeyRange, V>,
     default: Option<Box<V>>,
 }
@@ -65,15 +71,39 @@ impl<V: Clone> KeyRangeMap<V> {
 
     pub fn insert<KR: Into<KeyRange>>(&mut self, range: KR, value: V) -> Option<V> {
         match range.into() {
-            KeyRange::Value(v) => self.value_map.insert(v, value),
+            KeyRange::Value(v) => self.value_map.insert(v.into(), value),
             KeyRange::Full => self.default.replace(Box::new(value)).map(|d| *d),
             other => self.range_map.insert(other, value)
         }
     }
 
+    pub fn remove(&mut self, range: KeyRange) -> Option<V> {
+        match range {
+            KeyRange::Value(v) => self.value_map.remove(&v.into()),
+            KeyRange::Full => self.default.take().map(|d| *d),
+            other => self.range_map.remove(&other)
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.value_map.clear();
+        self.range_map.clear();
+        self.default = None;
+    }
+
+    pub fn retain<F: FnMut(&KeyRange, &mut V) -> bool>(&mut self, mut f: F) {
+        self.value_map.retain(|k, v| f(k, v));
+        self.range_map.retain(|k, v| f(k, v));
+        if let Some(full) = self.default.as_deref_mut() {
+            if !f(&KeyRange::Full, full) {
+                self.default = None;
+            }
+        }
+    }
+
     pub fn get(&self, key: &i64) -> Option<&V> {
         self.value_map
-            .get(key)
+            .get(&(*key).into())
             .or_else(|| {
                 self.range_map.iter()
                     .find_map(|(k, v)| {
@@ -87,17 +117,12 @@ impl<V: Clone> KeyRangeMap<V> {
             .or(self.default.as_ref().map(|d| d.as_ref()))
     }
 
-    pub fn iter(&self) -> impl Iterator<Item=(KeyRange, &V)> {
-        self.value_map
-            .iter()
-            .map(|(k, v)| (KeyRange::Value(*k), v))
-            .chain(self.range_map
-                .iter()
-                .map(|(k, v)| (k.clone(), v)))
-            .chain(self.default
-                .as_ref()
-                .map(|v| vec![(KeyRange::Full, v.as_ref())])
-                .unwrap_or_default())
+    pub fn iter(&self) -> impl Iterator<Item=(&KeyRange, &V)> {
+        Iter::new(self)
+    }
+
+    pub fn into_iter(self) -> impl Iterator<Item=(KeyRange, V)> {
+        IntoIter::new(self)
     }
 }
 
@@ -107,7 +132,7 @@ impl<V: PartialEq + Clone> KeyRangeMap<V> {
             .iter()
             .find_map(|(k, v)| {
                 if v == value {
-                    Some(KeyRange::Value(*k))
+                    Some(k.clone())
                 } else {
                     None
                 }

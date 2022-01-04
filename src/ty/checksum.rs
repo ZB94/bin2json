@@ -8,12 +8,14 @@ use crate::ReadBinError;
 pub enum Checksum {
     /// 异或校验
     Xor,
+    /// 补码
+    Complement,
 }
 
 impl Checksum {
     pub fn read<'a>(&self, bits: &'a BitSlice<Msb0, u8>) -> Result<(Vec<u8>, &'a BitSlice<Msb0, u8>), ReadBinError> {
         match self {
-            Self::Xor => {
+            Self::Xor | Checksum::Complement => {
                 let (v, d) = Vec::<u8>::read(bits, Limit::new_size(Size::Bytes(1)))?;
                 Ok((d, v))
             }
@@ -30,10 +32,21 @@ impl Checksum {
                 }
                 vec![c]
             }
+            Checksum::Complement => {
+                let sum: u8 = data.iter().sum();
+                vec![(!sum) + 1]
+            }
         }
     }
 
     pub fn check(&self, data: &[u8], checksum: &[u8]) -> bool {
         return self.checksum(data) == checksum;
+    }
+
+    pub const fn name(&self) -> &'static str {
+        match self {
+            Checksum::Xor => "异或",
+            Checksum::Complement => "补码",
+        }
     }
 }
