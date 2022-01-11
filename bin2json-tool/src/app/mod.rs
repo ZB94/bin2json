@@ -153,10 +153,10 @@ impl Application {
                 .desired_width(width));
             ui.separator();
             ui.with_layout(Layout::right_to_left().with_cross_align(Align::Min), |ui| {
-                if ui.button("更新为类型配置").clicked() {
+                if ui.button("类型配置=>JSON").clicked() {
                     self.ty_json = bin2json::serde_json::to_string_pretty(&self.ty.ty).unwrap();
                 }
-                if ui.button("设置到类型配置").clicked() {
+                if ui.button("JSON=>类型配置").clicked() {
                     match bin2json::serde_json::from_str(&self.ty_json) {
                         Ok(ty) => {
                             self.ty = TypeUi::from_type(&self.ty.ident, ty);

@@ -24,7 +24,7 @@ mod secure_key_ui;
 #[derive(Clone)]
 pub struct TypeUi {
     pub ty: Type,
-    pub(crate)  ident: String,
+    pub(crate) ident: String,
     ident_counter: usize,
 
     temp_bs_enum_key: String,
@@ -52,38 +52,75 @@ impl TypeUi {
         }
     }
 
-    pub fn from_type<S: Into<String>>(id: S, ty: Type) -> Self {
-        let mut tui = Self::new(id);
-        match &ty {
+    fn reset_state(&mut self) {
+        self.temp_bs_enum_key.clear();
+        self.temp_bs_enum_value = 0;
+        self.temp_bs_error.clear();
+
+        self.temp_fields.clear();
+        self.ident_counter = 0;
+
+        self.temp_enum_error.clear();
+
+        if let
+        | Type::Array { .. }
+        | Type::Converter { .. }
+        | Type::Encrypt { .. }
+        | Type::Enum { .. }
+        = self.ty {
+            self.add_temp_field("", None);
+        }
+    }
+
+    fn set_type(&mut self, ty: Type) {
+        self.ty = ty;
+        self.reset_state();
+        let fields: Vec<_> = match &self.ty {
             Type::Struct { fields, .. } => {
-                tui.temp_fields = fields.iter()
-                    .map(|Field { name, ty }| {
-                        let ty = TypeUi::from_type(format!("{} > fields[{}]", &tui.ident, &tui.ident_counter), ty.clone());
-                        tui.ident_counter += 1;
-                        (name.clone(), ty)
-                    })
-                    .collect();
+                fields.iter()
+                    .map(|Field { name, ty }| (name.clone(), Some(ty.clone())))
+                    .collect()
+            }
+            Type::Enum { map, .. } => {
+                let mut l = map.iter()
+                    .map(|(k, v)| (k.to_string(), Some(v.clone())))
+                    .collect::<Vec<_>>();
+                l.push(("".to_string(), None));
+                l
             }
             | Type::Array { element_type: ty, .. }
             | Type::Converter { original_type: ty, .. }
             | Type::Encrypt { inner_type: ty, .. }
-            => {
-                tui.temp_fields = vec![
-                    ("".to_string(), TypeUi::from_type(format!("{} > Array > type", &tui.ident), ty.as_ref().clone()))
-                ];
+            => vec![("".to_string(), Some(ty.as_ref().clone()))],
+            _ => vec![],
+        };
+        if !fields.is_empty() {
+            self.temp_fields.clear();
+            self.ident_counter = 0;
+            for (name, ty) in fields {
+                self.add_temp_field(name, ty);
             }
-            Type::Enum { map, .. } => {
-                tui.temp_fields = map.iter()
-                    .map(|(k, v)| {
-                        let ty = TypeUi::from_type(format!("{} > Enum[{}]", &tui.ident, k.to_string()), v.clone());
-                        (k.to_string(), ty)
-                    })
-                    .collect();
-                tui.temp_fields.push(("".to_string(), TypeUi::from_type(format!("{} > Enum > temp", &tui.ident), Type::uint8())));
-            }
-            _ => {}
         }
-        tui.ty = ty;
+    }
+
+    fn add_temp_field<S: Into<String>>(&mut self, name: S, ty: Option<Type>) -> &mut (String, TypeUi) {
+        let last_idx = self.temp_fields.len();
+
+        let name = name.into();
+        let mut tui = TypeUi::new(format!("{} > {}[{}]", &self.ident, &name, self.ident_counter));
+        if let Some(ty) = ty {
+            tui.set_type(ty);
+        }
+
+        self.temp_fields.push((name, tui));
+        self.ident_counter += 1;
+
+        &mut self.temp_fields[last_idx]
+    }
+
+    pub fn from_type<S: Into<String>>(id: S, ty: Type) -> Self {
+        let mut tui = Self::new(id);
+        tui.set_type(ty);
         tui
     }
 
@@ -93,6 +130,21 @@ impl TypeUi {
             .num_columns(2)
             .striped(true)
             .show(ui, |ui| {
+                ui.label("类型");
+                egui::ComboBox::from_id_source(format!("{} > type combox", &self.ident))
+                    .selected_text(self.ty.type_name())
+                    .show_ui(ui, |ui| {
+                        let old_ty = self.ty.type_name();
+                        for t in default_types() {
+                            let name = t.type_name();
+                            ui.selectable_value(&mut self.ty, t, name);
+                        }
+                        if self.ty.type_name() != old_ty {
+                            self.reset_state()
+                        }
+                    });
+                ui.end_row();
+
                 let TypeUi {
                     ty,
                     ident,
@@ -103,28 +155,6 @@ impl TypeUi {
                     temp_fields,
                     temp_enum_error,
                 } = self;
-
-                ui.label("类型");
-                egui::ComboBox::from_id_source(format!("{} > type combox", ident))
-                    .selected_text(ty.type_name())
-                    .show_ui(ui, |ui| {
-                        let old_ty = ty.type_name();
-                        for t in default_types() {
-                            let name = t.type_name();
-                            ui.selectable_value(ty, t, name);
-                        }
-                        if ty.type_name() != old_ty {
-                            *temp_bs_enum_key = Default::default();
-                            *temp_bs_enum_value = 0;
-                            *temp_bs_error = Default::default();
-
-                            temp_fields.clear();
-                            *ident_counter = 0;
-
-                            *temp_enum_error = Default::default();
-                        }
-                    });
-                ui.end_row();
 
                 match ty {
                     Type::Magic { magic } => {
@@ -209,7 +239,7 @@ impl TypeUi {
 
                         ui.label("成员类型");
                         ui.vertical(|ui| {
-                            let (_, ty_ui) = last_field(temp_fields, ident);
+                            let (_, ty_ui) = last_field(temp_fields);
                             ty_ui.ui(ui);
                             *element_type = Box::new(ty_ui.ty.clone());
                         });
@@ -217,10 +247,9 @@ impl TypeUi {
                     }
 
                     Type::Enum { by, map, size } => {
-                        ui_enum(
+                        if ui_enum(
                             ui,
                             ident,
-                            ident_counter,
                             temp_bs_enum_key,
                             temp_bs_enum_value,
                             temp_bs_error,
@@ -229,7 +258,9 @@ impl TypeUi {
                             by,
                             map,
                             size,
-                        );
+                        ) {
+                            self.add_temp_field("", None);
+                        }
                     }
 
                     Type::Converter {
@@ -245,7 +276,7 @@ impl TypeUi {
                         ui.add(ConverterUi(on_write));
                         ui.end_row();
 
-                        let (_, ty_ui) = last_field(temp_fields, ident);
+                        let (_, ty_ui) = last_field(temp_fields);
                         ui.label("原始类型");
                         ui.horizontal_top(|ui| ty_ui.ui(ui));
                         ui.end_row();
@@ -365,7 +396,6 @@ fn ui_struct(ui: &mut Ui, parent_id: &mut String, parent_id_counter: &mut usize,
 fn ui_enum(
     ui: &mut Ui,
     parent_id: &str,
-    parent_id_counter: &mut usize,
     temp_bs_enum_key: &mut String,
     temp_bs_enum_value: &mut usize,
     temp_bs_error: &mut String,
@@ -374,7 +404,8 @@ fn ui_enum(
     by: &mut String,
     map: &mut KeyRangeMap<Type>,
     size: &mut Option<BytesSize>,
-) {
+) -> bool {
+    let mut add = false;
     ui.label("大小");
     ui.add(BytesSizeUi::new(
         size,
@@ -398,7 +429,7 @@ fn ui_enum(
                 ui.label("操作");
                 ui.end_row();
 
-                last_field(temp_fields, parent_id);
+                last_field(temp_fields);
 
                 let last_idx = temp_fields.len() - 1;
                 let mut remove_list = vec![];
@@ -430,7 +461,7 @@ fn ui_enum(
                 ui.end_row();
 
                 let last_idx = temp_fields.len() - 1;
-                let (temp_kr, temp_ty) = last_field(temp_fields, parent_id);
+                let (temp_kr, temp_ty) = last_field(temp_fields);
 
                 let resp = ui.text_edit_singleline(temp_kr)
                     .on_hover_text(KEY_RANGE_FORMAT);
@@ -452,12 +483,6 @@ fn ui_enum(
                 if ui.button("添加/修改").clicked() {
                     if temp_kr.parse::<KeyRange>().is_ok() {
                         let kr = temp_kr.clone();
-                        temp_ty.ident = format!("{} > Enum[{}]", parent_id, parent_id_counter);
-                        *parent_id_counter += 1;
-                        temp_fields.push((
-                            Default::default(),
-                            TypeUi::new(format!("{} > add enum", parent_id)),
-                        ));
                         *temp_enum_error = Default::default();
 
                         temp_fields.iter()
@@ -467,6 +492,7 @@ fn ui_enum(
                                     temp_fields.remove(idx);
                                 }
                             });
+                        add = true;
                     } else {
                         *temp_enum_error = format!("输入格式错误\n{}", KEY_RANGE_FORMAT);
                     }
@@ -480,6 +506,7 @@ fn ui_enum(
             });
     });
     ui.end_row();
+    add
 }
 
 fn ui_checksum(
@@ -546,7 +573,7 @@ fn ui_encrypt(
     ));
     ui.end_row();
 
-    let (_, ty_ui) = last_field(temp_fields, parent_id);
+    let (_, ty_ui) = last_field(temp_fields);
     ui.label("内部数据类型");
     ui.horizontal_top(|ui| ty_ui.ui(ui));
     ui.end_row();
@@ -601,13 +628,8 @@ fn ui_sign(
     ui.end_row();
 }
 
-fn last_field<'f>(temp_fields: &'f mut Vec<(String, TypeUi)>, parent_id: &str) -> &'f mut (String, TypeUi) {
-    if temp_fields.is_empty() {
-        temp_fields.push((
-            Default::default(),
-            TypeUi::new(format!("{} > last field", parent_id))
-        ));
-    }
+#[inline]
+fn last_field(temp_fields: &mut Vec<(String, TypeUi)>) -> &mut (String, TypeUi) {
     let last_idx = temp_fields.len() - 1;
     &mut temp_fields[last_idx]
 }
