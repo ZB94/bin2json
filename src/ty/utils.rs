@@ -60,9 +60,7 @@ pub fn set_ctx(value: &serde_json::Value, prefix: Option<String>, ctx: &mut eval
         serde_json::Value::Null => ctx.set_value(ident, evalexpr::Value::Empty)?,
         serde_json::Value::Bool(b) => ctx.set_value(ident, evalexpr::Value::Boolean(*b))?,
         serde_json::Value::Number(n) => {
-            let v = n.as_i64()
-                .map(|i| evalexpr::Value::Int(i))
-                .unwrap_or_else(|| evalexpr::Value::Float(n.as_f64().unwrap()));
+            let v = evalexpr::Value::Float(n.as_f64().unwrap());
             ctx.set_value(ident, v)?;
         }
         serde_json::Value::String(s) => ctx.set_value(ident, evalexpr::Value::String(s.clone()))?,
@@ -115,10 +113,10 @@ pub fn get_data_by_size<'a>(
                     .ok_or(ReadBinError::ByKeyNotFound(by.clone()))?;
 
                 if let Some(BytesSize::Enum { map, .. }) = size {
-                    by_value.as_i64()
+                    as_i64(by_value)
                         .and_then(|key| map.get(&key).copied())
                 } else {
-                    by_value.as_u64()
+                    as_u64(by_value)
                         .map(|s| s as usize)
                 }
                     .ok_or(ReadBinError::LengthTargetIsInvalid(by.clone()))?
@@ -134,4 +132,30 @@ pub fn get_data_by_size<'a>(
     } else {
         Err(ReadBinError::Incomplete)
     }
+}
+
+pub fn as_i64(num: &Value) -> Option<i64> {
+    num.as_i64()
+        .or_else(|| {
+            if let Some(f) = num.as_f64() {
+                if f.fract() == 0.0 && f >= i64::MIN as f64 && f <= i64::MAX as f64
+                {
+                    return Some(f as i64);
+                }
+            }
+            None
+        })
+}
+
+pub fn as_u64(num: &Value) -> Option<u64> {
+    num.as_u64()
+        .or_else(|| {
+            if let Some(f) = num.as_f64() {
+                if f.fract() == 0.0 && f >= 0.0 && f <= u64::MAX as f64
+                {
+                    return Some(f as u64);
+                }
+            }
+            None
+        })
 }
