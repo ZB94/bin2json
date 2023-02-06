@@ -1,9 +1,8 @@
+use bin2json::ty::BitSize;
 use eframe::egui;
 use eframe::egui::{Response, Ui, Widget};
 
-use bin2json::ty::Size;
-
-pub struct SizeUi<'a>(pub &'a mut Option<Size>);
+pub struct SizeUi<'a>(pub &'a mut Option<BitSize>);
 
 impl Widget for SizeUi<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
@@ -15,26 +14,16 @@ impl Widget for SizeUi<'_> {
             }
 
             ui.horizontal(|ui| {
-                if let Some(Size::Bits(size)) = size {
+                if let Some(BitSize(size)) = size {
                     let _ = ui.radio(true, "按指定比特数");
                     ui.add(egui::DragValue::new(size).suffix("比特"));
                 } else {
                     if ui.radio(false, "按指定比特数").clicked() {
-                        *size = Some(Size::Bits(0));
-                    }
-                };
-            });
-            ui.horizontal(|ui| {
-                if let Some(Size::Bytes(size)) = size {
-                    let _ = ui.radio(true, "按指定字节数");
-                    ui.add(egui::DragValue::new(size).suffix("字节"));
-                } else {
-                    if ui.radio(false, "按指定字节数").clicked() {
-                        *size = Some(Size::Bytes(0));
+                        *size = Some(BitSize(0));
                     }
                 };
             });
         })
-            .response
+        .response
     }
 }

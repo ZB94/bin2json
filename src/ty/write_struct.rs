@@ -12,10 +12,10 @@ use crate::Type;
 pub fn write_struct(
     fields: &[Field],
     object: &Map<String, Value>,
-) -> Result<BitVec<Msb0, u8>, WriteBinError> {
+) -> Result<BitVec<u8, Msb0>, WriteBinError> {
     let mut result = fields.iter()
         .map(|Field { name, ty }| (name, (ty, None)))
-        .collect::<HashMap<_, (&Type, Option<BitVec<Msb0, u8>>)>>();
+        .collect::<HashMap<_, (&Type, Option<BitVec<u8, Msb0>>)>>();
 
     // 重复原因：应对引用字段与Checksum或Sign嵌套
     for _ in 0..2 {
@@ -124,8 +124,8 @@ fn write_normal_field(
     ty: &Type,
     value: Option<&Value>,
     object: &Map<String, Value>,
-    result: &mut HashMap<&String, (&Type, Option<BitVec<Msb0, u8>>)>,
-) -> Result<Option<BitVec<Msb0, u8>>, WriteBinError> {
+    result: &mut HashMap<&String, (&Type, Option<BitVec<u8, Msb0>>)>,
+) -> Result<Option<BitVec<u8, Msb0>>, WriteBinError> {
     if let Type::Magic { .. } = ty {
         return ty.write(value.unwrap_or(&Value::Null))
             .map(|o| Some(o));
@@ -193,9 +193,9 @@ fn write_normal_field(
 
 
 fn set_by_value(
-    result: &mut HashMap<&String, (&Type, Option<BitVec<Msb0, u8>>)>,
+    result: &mut HashMap<&String, (&Type, Option<BitVec<u8, Msb0>>)>,
     ty: &Type,
-    bits: &BitVec<Msb0, u8>,
+    bits: &BitVec<u8, Msb0>,
     by: &String,
 ) -> Result<(), WriteBinError> {
     let bytes = bits.len() / 8;

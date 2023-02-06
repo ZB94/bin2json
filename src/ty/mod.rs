@@ -1,6 +1,6 @@
 use deku::bitvec::{BitSlice, Msb0};
 use deku::ctx::Limit;
-pub use deku::ctx::Size;
+pub use deku::ctx::{BitSize, ByteSize};
 use deku::prelude::*;
 use serde_json::Map;
 
@@ -22,17 +22,17 @@ use crate::secure::SecureKey;
 use crate::ty::write_struct::write_struct;
 use crate::Value;
 
-mod converter;
+mod array_length;
 mod bytes_size;
-mod unit;
-mod read_struct;
+mod checksum;
+mod converter;
+mod endian;
 mod field;
 mod read_array;
-mod array_length;
-mod endian;
-mod write_struct;
+mod read_struct;
+mod unit;
 mod utils;
-mod checksum;
+mod write_struct;
 
 /// 数据类型
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -49,9 +49,7 @@ pub enum Type {
     /// assert_eq!(Type::magic(&[1, 2, 3]), serde_json::from_str(json)?);
     /// # Ok::<_, serde_json::Error>(())
     /// ```
-    Magic {
-        magic: Vec<u8>
-    },
+    Magic { magic: Vec<u8> },
 
     /// 布尔型数据。
     ///
@@ -66,7 +64,7 @@ pub enum Type {
     /// ```
     Boolean {
         /// 是否是位数据。如果是则读取1比特位的数据作为该值，否则读取1字节。
-        bit: bool
+        bit: bool,
     },
 
     /// 有符号8位整数
@@ -81,7 +79,7 @@ pub enum Type {
     /// ```
     Int8 {
         #[serde(default)]
-        unit: Unit
+        unit: Unit,
     },
 
     /// 有符号16位整数
@@ -97,7 +95,7 @@ pub enum Type {
     /// ```
     Int16 {
         #[serde(default)]
-        unit: Unit
+        unit: Unit,
     },
 
     /// 有符号32位整数
@@ -113,7 +111,7 @@ pub enum Type {
     /// ```
     Int32 {
         #[serde(default)]
-        unit: Unit
+        unit: Unit,
     },
 
     /// 有符号64位整数
@@ -129,7 +127,7 @@ pub enum Type {
     /// ```
     Int64 {
         #[serde(default)]
-        unit: Unit
+        unit: Unit,
     },
 
     /// 无符号8位整数
@@ -144,7 +142,7 @@ pub enum Type {
     /// ```
     Uint8 {
         #[serde(default)]
-        unit: Unit
+        unit: Unit,
     },
 
     /// 无符号16位整数
@@ -160,7 +158,7 @@ pub enum Type {
     /// ```
     Uint16 {
         #[serde(default)]
-        unit: Unit
+        unit: Unit,
     },
 
     /// 无符号32位整数
@@ -176,7 +174,7 @@ pub enum Type {
     /// ```
     Uint32 {
         #[serde(default)]
-        unit: Unit
+        unit: Unit,
     },
 
     /// 无符号64位整数
@@ -192,7 +190,7 @@ pub enum Type {
     /// ```
     Uint64 {
         #[serde(default)]
-        unit: Unit
+        unit: Unit,
     },
 
     /// 单精度浮点数
@@ -208,7 +206,7 @@ pub enum Type {
     /// ```
     Float32 {
         #[serde(default)]
-        endian: Endian
+        endian: Endian,
     },
 
     /// 双精度浮点数
@@ -224,7 +222,7 @@ pub enum Type {
     /// ```
     Float64 {
         #[serde(default)]
-        endian: Endian
+        endian: Endian,
     },
 
     /// UTF8字符串
@@ -410,39 +408,57 @@ impl Type {
     pub const BOOL: Type = Type::Boolean { bit: false };
 
     pub fn magic(magic: &[u8]) -> Self {
-        Self::Magic { magic: magic.to_vec() }
+        Self::Magic {
+            magic: magic.to_vec(),
+        }
     }
 
     pub fn int8() -> Self {
-        Self::Int8 { unit: Default::default() }
+        Self::Int8 {
+            unit: Default::default(),
+        }
     }
 
     pub fn int16(endian: Endian) -> Self {
-        Self::Int16 { unit: endian.into() }
+        Self::Int16 {
+            unit: endian.into(),
+        }
     }
 
     pub fn int32(endian: Endian) -> Self {
-        Self::Int32 { unit: endian.into() }
+        Self::Int32 {
+            unit: endian.into(),
+        }
     }
 
     pub fn int64(endian: Endian) -> Self {
-        Self::Int64 { unit: endian.into() }
+        Self::Int64 {
+            unit: endian.into(),
+        }
     }
 
     pub fn uint8() -> Self {
-        Self::Uint8 { unit: Default::default() }
+        Self::Uint8 {
+            unit: Default::default(),
+        }
     }
 
     pub fn uint16(endian: Endian) -> Self {
-        Self::Uint16 { unit: endian.into() }
+        Self::Uint16 {
+            unit: endian.into(),
+        }
     }
 
     pub fn uint32(endian: Endian) -> Self {
-        Self::Uint32 { unit: endian.into() }
+        Self::Uint32 {
+            unit: endian.into(),
+        }
     }
 
     pub fn uint64(endian: Endian) -> Self {
-        Self::Uint64 { unit: endian.into() }
+        Self::Uint64 {
+            unit: endian.into(),
+        }
     }
 
     pub fn float32(endian: Endian) -> Self {
@@ -466,19 +482,34 @@ impl Type {
     }
 
     pub fn new_struct_with_size(fields: Vec<Field>, size: BytesSize) -> Self {
-        Self::Struct { fields, size: Some(size) }
+        Self::Struct {
+            fields,
+            size: Some(size),
+        }
     }
 
     pub fn new_array(ty: Type) -> Self {
-        Self::Array { element_type: Box::new(ty), size: None, length: None }
+        Self::Array {
+            element_type: Box::new(ty),
+            size: None,
+            length: None,
+        }
     }
 
     pub fn new_array_with_size(ty: Type, size: BytesSize) -> Self {
-        Self::Array { element_type: Box::new(ty), size: Some(size), length: None }
+        Self::Array {
+            element_type: Box::new(ty),
+            size: Some(size),
+            length: None,
+        }
     }
 
     pub fn new_array_with_length(ty: Type, length: Length) -> Self {
-        Self::Array { element_type: Box::new(ty), size: None, length: Some(length) }
+        Self::Array {
+            element_type: Box::new(ty),
+            size: None,
+            length: Some(length),
+        }
     }
 
     pub fn new_enum<S: Into<String>, M: Into<KeyRangeMap<Type>>>(by: S, map: M) -> Self {
@@ -552,8 +583,8 @@ impl Type {
 }
 
 macro_rules! parse_numeric_field {
-    ($input: expr, $name: expr, $ty: ty, $unit: expr, $default_size: expr) => {{
-        let size = $unit.size.unwrap_or($default_size);
+    ($input: expr, $name: expr, $ty: ty, $unit: expr) => {{
+        let size = $unit.size.unwrap_or(BitSize::of::<$ty>());
         let (input, value) = <$ty>::read($input, (($unit.endian).into(), size))?;
         (value.into(), input)
     }};
@@ -564,13 +595,14 @@ impl Type {
     /// 尝试从数据流中读取符合定义的JSON值
     ///
     /// **注意:** 本方法只读取原始数值，不对[`Type::Converter`]中的数据进行转化
-    pub fn read<'a>(&self, data: &'a BitSlice<Msb0, u8>) -> Result<(Value, &'a BitSlice<Msb0, u8>), ReadBinError> {
+    pub fn read<'a>(
+        &self,
+        data: &'a BitSlice<u8, Msb0>,
+    ) -> Result<(Value, &'a BitSlice<u8, Msb0>), ReadBinError> {
         let (value, data): (Value, _) = match self {
             Self::Magic { ref magic } => {
-                let (input, value): (_, Vec<u8>) = DekuRead::read(
-                    data,
-                    Limit::new_count(magic.len()),
-                )?;
+                let (input, value): (_, Vec<u8>) =
+                    DekuRead::read(data, Limit::new_count(magic.len()))?;
 
                 if magic == &value {
                     (value.into(), input)
@@ -579,47 +611,53 @@ impl Type {
                 }
             }
             Self::Boolean { bit } => {
-                let size = if *bit { Size::Bits(1) } else { Size::Bytes(1) };
+                let size = if *bit {
+                    BitSize(1)
+                } else {
+                    BitSize::of::<u8>()
+                };
                 let (input, v) = bool::read(data, size)?;
                 (v.into(), input)
             }
             Self::Int8 { unit } => {
-                parse_numeric_field!(data, field.name, i8, unit, Size::Bytes(1))
+                parse_numeric_field!(data, field.name, i8, unit)
             }
             Self::Int16 { unit } => {
-                parse_numeric_field!(data, field.name, i16, unit, Size::Bytes(2))
+                parse_numeric_field!(data, field.name, i16, unit)
             }
             Self::Int32 { unit } => {
-                parse_numeric_field!(data, field.name, i32, unit, Size::Bytes(4))
+                parse_numeric_field!(data, field.name, i32, unit)
             }
             Self::Int64 { unit } => {
-                parse_numeric_field!(data, field.name, i64, unit, Size::Bytes(8))
+                parse_numeric_field!(data, field.name, i64, unit)
             }
             Self::Uint8 { unit } => {
-                parse_numeric_field!(data, field.name, u8, unit, Size::Bytes(1))
+                parse_numeric_field!(data, field.name, u8, unit)
             }
             Self::Uint16 { unit } => {
-                parse_numeric_field!(data, field.name, u16, unit, Size::Bytes(2))
+                parse_numeric_field!(data, field.name, u16, unit)
             }
             Self::Uint32 { unit } => {
-                parse_numeric_field!(data, field.name, u32, unit, Size::Bytes(4))
+                parse_numeric_field!(data, field.name, u32, unit)
             }
             Self::Uint64 { unit } => {
-                parse_numeric_field!(data, field.name, u64, unit, Size::Bytes(8))
+                parse_numeric_field!(data, field.name, u64, unit)
             }
             Self::Float32 { endian } => {
-                let (input, v): (_, f32) = DekuRead::<'_, deku::ctx::Endian>::read(data, (*endian).into())?;
+                let (input, v): (_, f32) =
+                    DekuRead::<'_, deku::ctx::Endian>::read(data, (*endian).into())?;
                 (v.into(), input)
             }
             Self::Float64 { endian } => {
-                let (input, v): (_, f64) = DekuRead::<'_, deku::ctx::Endian>::read(data, (*endian).into())?;
+                let (input, v): (_, f64) =
+                    DekuRead::<'_, deku::ctx::Endian>::read(data, (*endian).into())?;
                 (v.into(), input)
             }
             Self::String { ref size } | Type::Bin { ref size } => {
                 let d = get_data_by_size(data, size, None)?;
                 let d_len = d.len();
 
-                let (_, v) = Vec::<u8>::read(data, Limit::new_size(Size::Bits(d_len)))?;
+                let (_, v) = Vec::<u8>::read(data, Limit::new_bit_size(BitSize(d_len)))?;
                 let v = if let Type::String { .. } = self {
                     String::from_utf8(v)?.into()
                 } else {
@@ -627,29 +665,35 @@ impl Type {
                 };
                 (v, &data[d_len..])
             }
-            Self::Struct { fields, size } => {
-                read_struct(fields, size, data)?
-            }
-            Self::Array { element_type: ty, size, length } => {
-                read_array(ty, length, size, data)?
-            }
+            Self::Struct { fields, size } => read_struct(fields, size, data)?,
+            Self::Array {
+                element_type: ty,
+                size,
+                length,
+            } => read_array(ty, length, size, data)?,
             Self::Converter { original_type, .. } => {
                 let (value, d) = original_type.read(data)?;
                 let value = self.convert(&value, true)?;
                 (value, d)
             }
 
-            Self::Encrypt { inner_type, size, on_read, .. } => {
+            Self::Encrypt {
+                inner_type,
+                size,
+                on_read,
+                ..
+            } => {
                 let en_data = get_data_by_size(data, size, None)?;
                 let de_data = on_read.decrypt(en_data)?;
                 let (v, _) = inner_type.read(&de_data)?;
                 (v, &data[en_data.len()..])
             }
 
-            | Self::Enum { by, .. }
+            Self::Enum { by, .. }
             | Self::Checksum { start_key: by, .. }
-            | Self::Sign { start_key: by, .. }
-            => return Err(ReadBinError::ByKeyNotFound(by.clone())),
+            | Self::Sign { start_key: by, .. } => {
+                return Err(ReadBinError::ByKeyNotFound(by.clone()))
+            }
         };
         Ok((value, data))
     }
@@ -660,7 +704,7 @@ impl Type {
     /// 尝试将指定的JSON值以定义的格式写到数据流中
     ///
     /// **注意:** 调用之前应对调用[`Type::convert`]方法转换数据，本方法不会对[`Type::Converter`]中的数据进行转化
-    pub fn write(&self, value: &serde_json::Value) -> Result<BitVec<Msb0, u8>, WriteBinError> {
+    pub fn write(&self, value: &serde_json::Value) -> Result<BitVec<u8, Msb0>, WriteBinError> {
         let mut output = BitVec::new();
 
         macro_rules! v {
@@ -669,10 +713,13 @@ impl Type {
             }};
         }
         macro_rules! write_num {
-            ($need_ty: ty, $unit: ident, $default_bytes: literal) => {
+            ($need_ty: ty, $unit: ident) => {
                 let v = v!(value.as_f64());
                 if v >= <$need_ty>::MIN as f64 && v <= <$need_ty>::MAX as f64 {
-                    let ctx: (deku::ctx::Endian, Size) = ($unit.endian.into(), $unit.size.unwrap_or(Size::Bytes($default_bytes)));
+                    let ctx: (deku::ctx::Endian, BitSize) = (
+                        $unit.endian.into(),
+                        $unit.size.unwrap_or(BitSize::of::<$need_ty>()),
+                    );
                     (v as $need_ty).write(&mut output, ctx)?;
                 } else {
                     return Err(WriteBinError::ValueOverflowOf(self.type_name()));
@@ -681,48 +728,65 @@ impl Type {
         }
 
         match self {
-            | Type::String { size: Some(BytesSize::By(_) | BytesSize::Enum { .. }) }
-            | Type::Bin { size: Some(BytesSize::By(_) | BytesSize::Enum { .. }) }
-            | Type::Struct { size: Some(BytesSize::By(_) | BytesSize::Enum { .. }), .. }
-            | Type::Array { size: Some(BytesSize::By(_) | BytesSize::Enum { .. }), .. }
-            | Type::Array { length: Some(Length::By(_)), .. }
+            Type::String {
+                size: Some(BytesSize::By(_) | BytesSize::Enum { .. }),
+            }
+            | Type::Bin {
+                size: Some(BytesSize::By(_) | BytesSize::Enum { .. }),
+            }
+            | Type::Struct {
+                size: Some(BytesSize::By(_) | BytesSize::Enum { .. }),
+                ..
+            }
+            | Type::Array {
+                size: Some(BytesSize::By(_) | BytesSize::Enum { .. }),
+                ..
+            }
+            | Type::Array {
+                length: Some(Length::By(_)),
+                ..
+            }
             | Type::Enum { .. }
             | Type::Checksum { .. }
-            | Type::Encrypt { size: Some(BytesSize::By(_) | BytesSize::Enum { .. }), .. }
-            | Type::Sign { .. }
-            => return Err(WriteBinError::ByError),
-
-            Type::Magic { magic } => {
-                magic.write(&mut output, ())?
+            | Type::Encrypt {
+                size: Some(BytesSize::By(_) | BytesSize::Enum { .. }),
+                ..
             }
+            | Type::Sign { .. } => return Err(WriteBinError::ByError),
+
+            Type::Magic { magic } => magic.write(&mut output, ())?,
             Type::Boolean { bit } => {
                 let b = v!(value.as_bool());
-                let size = if *bit { Size::Bits(1) } else { Size::Bytes(1) };
+                let size = if *bit {
+                    BitSize(1)
+                } else {
+                    BitSize::of::<u8>()
+                };
                 b.write(&mut output, size)?;
             }
             Type::Int8 { unit } => {
-                write_num!(i8, unit, 1);
+                write_num!(i8, unit);
             }
             Type::Int16 { unit } => {
-                write_num!(i16, unit, 2);
+                write_num!(i16, unit);
             }
             Type::Int32 { unit } => {
-                write_num!(i32, unit, 4);
+                write_num!(i32, unit);
             }
             Type::Int64 { unit } => {
-                write_num!(i64, unit, 8);
+                write_num!(i64, unit);
             }
             Type::Uint8 { unit } => {
-                write_num!(u8, unit, 1);
+                write_num!(u8, unit);
             }
             Type::Uint16 { unit } => {
-                write_num!(u16, unit, 2);
+                write_num!(u16, unit);
             }
             Type::Uint32 { unit } => {
-                write_num!(u32, unit, 4);
+                write_num!(u32, unit);
             }
             Type::Uint64 { unit } => {
-                write_num!(u64, unit, 8);
+                write_num!(u64, unit);
             }
             Type::Float32 { endian } => {
                 let v = v!(value.as_f64());
@@ -739,15 +803,14 @@ impl Type {
                 v!(value.as_f64()).write(&mut output, endian)?;
             }
             Type::Bin { size } | Type::String { size } => {
-                #[allow(unused_assignments)] let mut c = None;
+                #[allow(unused_assignments)]
+                let mut c = None;
 
                 let b = if let Type::String { .. } = self {
                     v!(value.as_str()).as_bytes()
                 } else {
                     c = Some(utils::get_bin(v!(value.as_array()), self.type_name())?);
-                    c.as_ref()
-                        .map(|v| v.as_slice())
-                        .unwrap()
+                    c.as_ref().map(|v| v.as_slice()).unwrap()
                 };
 
                 let e = match size {
@@ -762,7 +825,11 @@ impl Type {
                 }
             }
 
-            Type::Array { element_type, length, size } => {
+            Type::Array {
+                element_type,
+                length,
+                size,
+            } => {
                 let mut out = BitVec::new();
                 let mut len = 0;
                 v!(value.as_array())
@@ -776,7 +843,10 @@ impl Type {
 
                 if let Some(Length::Fixed(l)) = length {
                     if l != &len {
-                        return Err(WriteBinError::LengthError { input: len, need: *l });
+                        return Err(WriteBinError::LengthError {
+                            input: len,
+                            need: *l,
+                        });
                     }
                 }
 
@@ -795,7 +865,12 @@ impl Type {
                 output = original_type.write(&value)?;
             }
 
-            Type::Encrypt { inner_type, on_write, size, .. } => {
+            Type::Encrypt {
+                inner_type,
+                on_write,
+                size,
+                ..
+            } => {
                 let data = inner_type.write(value)?;
                 let data = on_write.encrypt(data)?;
                 utils::check_size(size, &data)?;
@@ -813,7 +888,12 @@ impl Type {
     pub fn convert(&self, value: &Value, is_read: bool) -> Result<Value, evalexpr::EvalexprError> {
         let value = value.clone();
         match (self, value) {
-            (Type::Converter { on_read, on_write, .. }, value) => {
+            (
+                Type::Converter {
+                    on_read, on_write, ..
+                },
+                value,
+            ) => {
                 if is_read {
                     on_read.convert(value)
                 } else {
@@ -828,19 +908,34 @@ impl Type {
                     fields: &[Field],
                     is_read: bool,
                 ) -> Result<&'a Type, evalexpr::EvalexprError> {
-                    let k = map.get(by)
-                        .ok_or(evalexpr::EvalexprError::CustomMessage(format!("未找到引用键: {}", by)))?
+                    let k = map
+                        .get(by)
+                        .ok_or(evalexpr::EvalexprError::CustomMessage(format!(
+                            "未找到引用键: {}",
+                            by
+                        )))?
                         .clone();
-                    let k = fields.iter()
+                    let k = fields
+                        .iter()
                         .find(|Field { name, .. }| name == by)
-                        .ok_or(evalexpr::EvalexprError::CustomMessage(format!("未找到引用键的类型定义: {}", by)))?
+                        .ok_or(evalexpr::EvalexprError::CustomMessage(format!(
+                            "未找到引用键的类型定义: {}",
+                            by
+                        )))?
                         .ty
                         .convert(&k, is_read)
                         .map_err(|e| evalexpr::EvalexprError::CustomMessage(format!("{}", e)))?
                         .as_i64()
-                        .ok_or(evalexpr::EvalexprError::CustomMessage(format!("引用键({})无法转化为整数", by)))?;
-                    enum_map.get(&k)
-                        .ok_or(evalexpr::EvalexprError::CustomMessage(format!("未能找到引用键({})对应的类型({})", by, k)))
+                        .ok_or(evalexpr::EvalexprError::CustomMessage(format!(
+                            "引用键({})无法转化为整数",
+                            by
+                        )))?;
+                    enum_map
+                        .get(&k)
+                        .ok_or(evalexpr::EvalexprError::CustomMessage(format!(
+                            "未能找到引用键({})对应的类型({})",
+                            by, k
+                        )))
                 }
 
                 let mut rm = Map::new();
@@ -857,7 +952,7 @@ impl Type {
                                     inner_type
                                 }
                             }
-                            _ => ty
+                            _ => ty,
                         };
                         rm.insert(k, ty.convert(&v, is_read)?);
                     }
@@ -866,14 +961,13 @@ impl Type {
                 Ok(Value::Object(rm))
             }
             (Type::Array { element_type, .. }, Value::Array(array)) => {
-                let a = array.iter()
+                let a = array
+                    .iter()
                     .map(|v| element_type.convert(v, is_read))
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(Value::Array(a))
             }
-            (Type::Encrypt { inner_type, .. }, value) => {
-                inner_type.convert(&value, is_read)
-            }
+            (Type::Encrypt { inner_type, .. }, value) => inner_type.convert(&value, is_read),
             (_, value) => Ok(value),
         }
     }

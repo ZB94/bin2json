@@ -1,5 +1,5 @@
 use deku::bitvec::{BitSlice, Msb0};
-use deku::ctx::{Limit, Size};
+use deku::ctx::{ByteSize, Limit};
 use deku::DekuRead;
 
 use crate::ReadBinError;
@@ -13,10 +13,13 @@ pub enum Checksum {
 }
 
 impl Checksum {
-    pub fn read<'a>(&self, bits: &'a BitSlice<Msb0, u8>) -> Result<(Vec<u8>, &'a BitSlice<Msb0, u8>), ReadBinError> {
+    pub fn read<'a>(
+        &self,
+        bits: &'a BitSlice<u8, Msb0>,
+    ) -> Result<(Vec<u8>, &'a BitSlice<u8, Msb0>), ReadBinError> {
         match self {
             Self::Xor | Checksum::Complement => {
-                let (v, d) = Vec::<u8>::read(bits, Limit::new_size(Size::Bytes(1)))?;
+                let (v, d) = Vec::<u8>::read(bits, Limit::new_byte_size(ByteSize(1)))?;
                 Ok((d, v))
             }
         }

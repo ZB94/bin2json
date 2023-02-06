@@ -7,4 +7,4 @@ edition = "2021"
 
 [dependencies]
 bin2json = { path = ".." }
-eframe = { version = "0.16.0", default_features = false, features = ["egui_glow"] }
+eframe = { version = "0.20", default_features = false, features = ["glow"] }

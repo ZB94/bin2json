@@ -13,9 +13,9 @@ pub use error::ReadBinError;
 pub use ty::Type;
 
 pub mod error;
-pub mod ty;
 pub mod range;
 pub mod secure;
+pub mod ty;
 
 #[cfg(test)]
 mod tests;

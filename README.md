@@ -34,24 +34,24 @@ let message: Type = serde_json::from_str(r#"{
     	{ "name": "field", "type": "Bin", "size": 10 },
     	{ "name": "array_size", "type": "Uint16" },
     	{ "name": "array_len", "type": "Uint16" },
-    	{ 
-    		"name": "array", 
+    	{
+    		"name": "array",
     		"type": "Array",
-    		"size": "array_size", 
+    		"size": "array_size",
     		"length": "array_len",
     		"element_type": {
     			"type": "Struct",
     			"fields": [
     				{ "name": "ty", "type": "Uint8" },
-    				{ 
-    					"name": "value", 
-    					"type": "Enum", 
+    				{
+    					"name": "value",
+    					"type": "Enum",
     					"by": "ty",
     					"map": {
     						"1": { "type": "Uint16" },
     						"2": { "type": "Bin", "size": 5 },
     						"3": { "type": "Float32" },
-    						"4": { 
+    						"4": {
     							"type": "Converter",
     							"original_type": { "type": "Uint32" },
     							"on_read": {
@@ -93,7 +93,7 @@ assert_eq!(
             { "ty": 1, "value": 100u16 },
             { "ty": 2, "value": b"hello" },
             { "ty": 3, "value": f32::from_be_bytes([4, 3, 2, 1]) },
-            { "ty": 4, "value": 2 }
+            { "ty": 4, "value": 2.0 }
         ],
         "tail": [3, 2, 1]
     }),
@@ -108,7 +108,7 @@ let msg = serde_json::json!({
         { "ty": 1, "value": 100u16 },
         { "ty": 2, "value": b"hello" },
         { "ty": 3, "value": f32::from_be_bytes([4, 3, 2, 1]) },
-        { "ty": 4, "value": 2 }
+        { "ty": 4, "value": 2.0 }
     ]
 });
 assert_eq!(data.view_bits::<Msb0>(), message.write(&msg).unwrap());
@@ -136,7 +136,7 @@ let ty: Type = serde_json::from_str(r#"{
 }"#).unwrap();
 
 // 读
-assert_eq!(serde_json::json!(2000), ty.read(200u32.to_be_bytes().view_bits::<Msb0>()).unwrap().0);
+assert_eq!(serde_json::json!(2000.0), ty.read(200u32.to_be_bytes().view_bits::<Msb0>()).unwrap().0);
 // before error
 assert!(ty.read(100u32.to_be_bytes().view_bits::<Msb0>()).is_err());
 // after error

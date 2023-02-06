@@ -1,8 +1,8 @@
 use deku::bitvec::{BitSlice, Msb0};
 
 use crate::error::ReadBinError;
-use crate::ty::{BytesSize, Length};
 use crate::ty::utils::get_data_by_size;
+use crate::ty::{BytesSize, Length};
 use crate::Type;
 use crate::Value;
 
@@ -10,8 +10,8 @@ pub fn read_array<'a>(
     ty: &Type,
     length: &Option<Length>,
     size: &Option<BytesSize>,
-    data: &'a BitSlice<Msb0, u8>,
-) -> Result<(Value, &'a BitSlice<Msb0, u8>), ReadBinError> {
+    data: &'a BitSlice<u8, Msb0>,
+) -> Result<(Value, &'a BitSlice<u8, Msb0>), ReadBinError> {
     let src = data;
     let mut data = get_data_by_size(data, size, None)?;
     let data_len = data.len();

@@ -4,7 +4,7 @@ use crate::Type;
 ///
 /// 在序列化时，`ty`属性直接映射了[`Type`]的属性。如:
 /// ```rust
-/// use bin2json::ty::{Field, Size, Unit, Endian, Type};
+/// use bin2json::ty::{Field, BitSize, Unit, Endian, Type};
 /// let json = r#"
 /// {
 ///     "name": "field name",
@@ -20,7 +20,7 @@ use crate::Type;
 /// "#;
 /// let field = Field::new(
 ///     "field name",
-///     Type::Uint16 { unit: Unit::new(Endian::Big, Size::Bytes(1)) }
+///     Type::Uint16 { unit: Unit::new(Endian::Big, BitSize(8)) }
 /// );
 /// assert_eq!(field, serde_json::from_str::<Field>(json)?);
 /// # Ok::<_, serde_json::Error>(())

@@ -1,14 +1,17 @@
-use deku::{DekuError, DekuRead};
 use deku::bitvec::{BitSlice, BitVec, BitView, Msb0};
 use deku::ctx::Limit;
+use deku::{DekuError, DekuRead};
 use evalexpr::ContextWithMutableVariables;
 use serde_json::{Map, Value};
 
 use crate::error::WriteBinError;
-use crate::ReadBinError;
 use crate::ty::BytesSize;
+use crate::ReadBinError;
 
-pub fn get_bin(list: &Vec<serde_json::Value>, type_name: &'static str) -> Result<Vec<u8>, WriteBinError> {
+pub fn get_bin(
+    list: &Vec<serde_json::Value>,
+    type_name: &'static str,
+) -> Result<Vec<u8>, WriteBinError> {
     list.iter()
         .map(|v| {
             let v = v.as_u64().ok_or(WriteBinError::TypeError(type_name))?;
@@ -21,9 +24,8 @@ pub fn get_bin(list: &Vec<serde_json::Value>, type_name: &'static str) -> Result
         .collect()
 }
 
-
 /// 检查输入是否为指定长度或者以指定字节数组结束
-pub fn check_size(size: &Option<BytesSize>, out: &BitVec<Msb0, u8>) -> Result<(), WriteBinError> {
+pub fn check_size(size: &Option<BytesSize>, out: &BitVec<u8, Msb0>) -> Result<(), WriteBinError> {
     if let Some(BytesSize::Fixed(size)) = size {
         if *size * 8 != out.len() {
             return Err(WriteBinError::BytesSizeError);
@@ -43,17 +45,17 @@ pub fn to_json_value(value: evalexpr::Value) -> serde_json::Value {
         evalexpr::Value::Int(i) => i.into(),
         evalexpr::Value::Boolean(b) => b.into(),
         evalexpr::Value::Tuple(l) => {
-            serde_json::Value::Array(
-                l.into_iter()
-                    .map(to_json_value)
-                    .collect()
-            )
+            serde_json::Value::Array(l.into_iter().map(to_json_value).collect())
         }
         evalexpr::Value::Empty => serde_json::Value::Null,
     }
 }
 
-pub fn set_ctx(value: &serde_json::Value, prefix: Option<String>, ctx: &mut evalexpr::HashMapContext) -> evalexpr::EvalexprResult<()> {
+pub fn set_ctx(
+    value: &serde_json::Value,
+    prefix: Option<String>,
+    ctx: &mut evalexpr::HashMapContext,
+) -> evalexpr::EvalexprResult<()> {
     let ident = prefix.unwrap_or_else(|| "self".to_string());
 
     match value {
@@ -65,7 +67,10 @@ pub fn set_ctx(value: &serde_json::Value, prefix: Option<String>, ctx: &mut eval
         }
         serde_json::Value::String(s) => ctx.set_value(ident, evalexpr::Value::String(s.clone()))?,
         serde_json::Value::Array(a) => {
-            ctx.set_value(format!("{}.len", a.len()), evalexpr::Value::Int(a.len() as i64))?;
+            ctx.set_value(
+                format!("{}.len", a.len()),
+                evalexpr::Value::Int(a.len() as i64),
+            )?;
             for (idx, v) in a.iter().enumerate() {
                 let ident = format!("{}[{}]", &ident, idx);
                 set_ctx(v, Some(ident), ctx)?
@@ -82,10 +87,10 @@ pub fn set_ctx(value: &serde_json::Value, prefix: Option<String>, ctx: &mut eval
 }
 
 pub fn get_data_by_size<'a>(
-    data: &'a BitSlice<Msb0, u8>,
+    data: &'a BitSlice<u8, Msb0>,
     size: &Option<BytesSize>,
     by_map: Option<&Map<String, Value>>,
-) -> Result<&'a BitSlice<Msb0, u8>, ReadBinError> {
+) -> Result<&'a BitSlice<u8, Msb0>, ReadBinError> {
     let len = match size {
         None => return Ok(data),
         Some(BytesSize::Fixed(size)) => *size,
@@ -98,8 +103,8 @@ pub fn get_data_by_size<'a>(
                 }
             };
 
-            let (mut d, mut v) = Vec::<u8>::read(data, Limit::new_count(with.len()))
-                .map_err(with_end_error)?;
+            let (mut d, mut v) =
+                Vec::<u8>::read(data, Limit::new_count(with.len())).map_err(with_end_error)?;
             while !v.ends_with(with) {
                 let (d2, b) = u8::read(d, ()).map_err(with_end_error)?;
                 v.push(b);
@@ -109,17 +114,14 @@ pub fn get_data_by_size<'a>(
         }
         Some(BytesSize::By(ref by) | BytesSize::Enum { ref by, .. }) => {
             if let Some(map) = by_map {
-                let by_value = map.get(by)
-                    .ok_or(ReadBinError::ByKeyNotFound(by.clone()))?;
+                let by_value = map.get(by).ok_or(ReadBinError::ByKeyNotFound(by.clone()))?;
 
                 if let Some(BytesSize::Enum { map, .. }) = size {
-                    as_i64(by_value)
-                        .and_then(|key| map.get(&key).copied())
+                    as_i64(by_value).and_then(|key| map.get(&key).copied())
                 } else {
-                    as_u64(by_value)
-                        .map(|s| s as usize)
+                    as_u64(by_value).map(|s| s as usize)
                 }
-                    .ok_or(ReadBinError::LengthTargetIsInvalid(by.clone()))?
+                .ok_or(ReadBinError::LengthTargetIsInvalid(by.clone()))?
             } else {
                 return Err(ReadBinError::ByKeyNotFound(by.clone()));
             }
@@ -135,27 +137,23 @@ pub fn get_data_by_size<'a>(
 }
 
 pub fn as_i64(num: &Value) -> Option<i64> {
-    num.as_i64()
-        .or_else(|| {
-            if let Some(f) = num.as_f64() {
-                if f.fract() == 0.0 && f >= i64::MIN as f64 && f <= i64::MAX as f64
-                {
-                    return Some(f as i64);
-                }
+    num.as_i64().or_else(|| {
+        if let Some(f) = num.as_f64() {
+            if f.fract() == 0.0 && f >= i64::MIN as f64 && f <= i64::MAX as f64 {
+                return Some(f as i64);
             }
-            None
-        })
+        }
+        None
+    })
 }
 
 pub fn as_u64(num: &Value) -> Option<u64> {
-    num.as_u64()
-        .or_else(|| {
-            if let Some(f) = num.as_f64() {
-                if f.fract() == 0.0 && f >= 0.0 && f <= u64::MAX as f64
-                {
-                    return Some(f as u64);
-                }
+    num.as_u64().or_else(|| {
+        if let Some(f) = num.as_f64() {
+            if f.fract() == 0.0 && f >= 0.0 && f <= u64::MAX as f64 {
+                return Some(f as u64);
             }
-            None
-        })
+        }
+        None
+    })
 }
